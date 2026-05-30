@@ -1,0 +1,4 @@
+langchain-community==0.4.1
+pypdf==6.11.0
+reportlab==4.5.1
+psutil

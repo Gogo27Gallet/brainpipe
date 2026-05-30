@@ -1,0 +1,23 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "brainpipe"
+version = "0.1.0"
+requires-python = ">=3.8"
+description = "Fast and reliable document ingestion engine for AI pipelines."
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[project.scripts]
+brainpipe = "brainpipe.cli:app"
+
+[project.optional-dependencies]
+# pip install -e ".[mupdf]" active la feature Cargo du même nom
+mupdf = []
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
