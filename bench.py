@@ -50,6 +50,10 @@ def generate_heavy_pdfs(num_pdfs: int, pages_per_pdf: int):
         c.save()
 
 
+def _default_parallel_files() -> bool:
+    return sys.platform != "win32"
+
+
 def _ingest_kwargs():
     import brainpipe
 
@@ -57,7 +61,7 @@ def _ingest_kwargs():
         directory=DATA_DIR,
         use_cache=False,
         chunk_pages=False,
-        parallel_files=sys.platform != "win32",
+        parallel_files=_default_parallel_files(),
         layout_mode="bulk",
         fast_chunk=True,
         strategy="fast",
@@ -93,7 +97,7 @@ def bench_brainpipe_ingest_text():
     start = time.perf_counter()
     texts = brainpipe.ingest_text(
         DATA_DIR,
-        parallel_files=sys.platform != "win32",
+        parallel_files=_default_parallel_files(),
         repair_pdf=False,
         backend="pdfium",
     )
@@ -159,10 +163,14 @@ def main():
         generate_heavy_pdfs(num_pdfs, pages_per_pdf)
 
     total_pages = num_pdfs * pages_per_pdf
-    print("-" * 60)
-    print(f"BENCHMARK: {total_pages} pages ({num_pdfs} PDFs × {pages_per_pdf})")
+    print("-" * 60, flush=True)
+    print(f"BENCHMARK: {total_pages} pages ({num_pdfs} PDFs × {pages_per_pdf})", flush=True)
     print(f"CPU: {psutil.cpu_count()} cores")
-    print("Settings: strategy=fast, repair_pdf=False, chunk_pages=False, parallel_files=True")
+    pf = _default_parallel_files()
+    print(
+        f"Settings: strategy=fast, repair_pdf=False, chunk_pages=False, "
+        f"parallel_files={pf}"
+    )
     print("-" * 60)
 
     results = {}

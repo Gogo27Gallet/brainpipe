@@ -245,9 +245,12 @@ impl ChunkStream {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
 
     /// Drain all pages in one Rust loop (much faster than repeated __next__ from Python).
-    fn drain_all(&self, py: Python<'_>) -> PyResult<Vec<DocumentPage>> {
-        match &self.backend {
-            ChunkStreamBackend::Buffer { pages, .. } => Ok(pages.clone()),
+    fn drain_all(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Vec<DocumentPage>> {
+        match &mut slf.backend {
+            ChunkStreamBackend::Buffer { pages, index } => {
+                index.store(pages.len(), Ordering::Relaxed);
+                Ok(std::mem::take(pages))
+            }
             ChunkStreamBackend::Channel(rx) => {
                 let rx = rx.clone();
                 py.allow_threads(move || {
@@ -2071,12 +2074,17 @@ fn extract_pdf_page_texts(
             .ok_or_else(|| "pdfium failed to open PDF".to_string())?;
         (document, None)
     };
-    let num_pages = document.pages().len() as usize;
+    let pages = document.pages();
+    let num_pages = pages.len() as usize;
     let limit = max_pages.map_or(num_pages, |mp| num_pages.min(mp));
     let mut texts = Vec::with_capacity(limit);
     for i in 0..limit {
-        if let Ok(page) = document.pages().get(i as u16) {
-            texts.push(page.text().map(|t| t.all()).unwrap_or_default());
+        if let Ok(page) = pages.get(i as u16) {
+            let page_text = page
+                .text()
+                .map(|t| t.all())
+                .unwrap_or_default();
+            texts.push(page_text);
         }
     }
     drop(document);
@@ -2635,15 +2643,12 @@ fn collect_turbo_pages(
     };
 
     let non_pdf_pages = |path: &Path| -> Vec<DocumentPage> {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if formats::is_image_extension(&ext) {
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        if formats::is_image_extension(ext) {
             return Vec::new();
         }
-        let (pages, _) = extract_non_pdf_pages(path, &ext);
+        let ext_lc = ext.to_lowercase();
+        let (pages, _) = extract_non_pdf_pages(path, &ext_lc);
         let path_arc: Arc<str> = path.to_string_lossy().into_owned().into();
         pages
             .into_iter()
@@ -2652,11 +2657,14 @@ fn collect_turbo_pages(
                 let mut metadata = HashMap::new();
                 metadata.insert("source_type".to_string(), ext.to_string());
                 if let Some(label) = p.label {
-                    if ext == "xlsx" || ext == "xls" || ext == "ods" {
+                    if ext.eq_ignore_ascii_case("xlsx")
+                        || ext.eq_ignore_ascii_case("xls")
+                        || ext.eq_ignore_ascii_case("ods")
+                    {
                         metadata.insert("sheet".to_string(), label);
-                    } else if ext == "pptx" || ext == "odp" {
+                    } else if ext.eq_ignore_ascii_case("pptx") || ext.eq_ignore_ascii_case("odp") {
                         metadata.insert("slide".to_string(), label);
-                    } else if ext == "epub" {
+                    } else if ext.eq_ignore_ascii_case("epub") {
                         metadata.insert("chapter".to_string(), label);
                     }
                 }
@@ -3107,53 +3115,51 @@ fn ingest_text(
     const REPAIR_LEVEL: pdf_repair::RepairLevel = pdf_repair::RepairLevel::Normal;
 
     let paths_len = paths.len();
+    // Parallel file ingest is safe without a shared PdfDocument, but Pdfium bindings
+    // can deadlock on Windows when multiple Rayon workers bind concurrently.
     let parallel_files = parallel_files.unwrap_or(
         paths_len > 1 && !cfg!(target_os = "windows"),
     );
+    let pii_off = pii_mode == pii::PiiMode::Off;
 
     py.allow_threads(|| {
         let extract_pdf = |pdfium: &Pdfium, path: &Path| -> Vec<String> {
-            extract_pdf_page_texts(pdfium, path, max_pages, repair_pdf, REPAIR_LEVEL, None)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|t| {
-                    let (s, _, _) = pii::sanitize_text(&t, pii_mode);
-                    s
-                })
-                .collect()
+            match extract_pdf_page_texts(pdfium, path, max_pages, repair_pdf, REPAIR_LEVEL, None) {
+                Ok(texts) if pii_off => texts,
+                Ok(texts) => texts
+                    .into_iter()
+                    .map(|t| pii::sanitize_text(&t, pii_mode).0)
+                    .collect(),
+                Err(_) => Vec::new(),
+            }
         };
 
         let extract_non_pdf = |path: &Path| -> Vec<String> {
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if formats::is_image_extension(&ext) {
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if formats::is_image_extension(ext) {
                 return Vec::new();
             }
-            let (pages, _) = extract_non_pdf_pages(path, &ext);
+            let (pages, _) = extract_non_pdf_pages(path, ext);
+            if pii_off {
+                return pages.into_iter().map(|p| p.text).collect();
+            }
             pages
                 .into_iter()
-                .map(|p| {
-                    let (s, _, _) = pii::sanitize_text(&p.text, pii_mode);
-                    s
-                })
+                .map(|p| pii::sanitize_text(&p.text, pii_mode).0)
                 .collect()
         };
 
+        let process_path = |path: &PathBuf| -> Vec<String> {
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("pdf") {
+                with_thread_pdfium(&lib_path, |pdfium| extract_pdf(pdfium, path))
+            } else {
+                extract_non_pdf(path)
+            }
+        };
+
         let texts: Vec<String> = if parallel_files {
-            paths
-                .par_iter()
-                .flat_map(|p| {
-                    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
-                    if ext.eq_ignore_ascii_case("pdf") {
-                        with_thread_pdfium(&lib_path, |pdfium| extract_pdf(pdfium, p))
-                    } else {
-                        extract_non_pdf(p)
-                    }
-                })
-                .collect()
+            paths.par_iter().flat_map(process_path).collect()
         } else {
             let mut out = Vec::new();
             with_thread_pdfium(&lib_path, |pdfium| {

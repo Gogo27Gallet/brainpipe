@@ -4,12 +4,12 @@
 
 | Engine | Time | Pages/s | RAM delta |
 |--------|------|---------|-----------|
-| **BrainPipe `ingest_text()`** | ~0.14s | ~710 | **~0.1 MB** |
-| PyMuPDF `get_text()` | ~0.13s | ~785 | ~1.9 MB |
-| BrainPipe TURBO + `drain_all()` | ~0.15s | ~684 | ~5 MB |
+| **BrainPipe `ingest_text()`** | ~0.18s | ~548 | **~0.4 MB** |
+| PyMuPDF `get_text()` | ~0.20s | ~514 | ~0.5 MB |
+| BrainPipe TURBO + `drain_all()` | ~0.19s | ~533 | ~5 MB |
 | LangChain PyPDFDirectoryLoader | ~0.66s | ~151 | ~12 MB |
 
-BrainPipe is **~5–6× faster than LangChain** on the same corpus and uses **far less RAM** on the text-only path.
+On Windows, keep `parallel_files=False` (default) — parallel Pdfium + Rayon can deadlock. BrainPipe **`ingest_text()` can match or beat PyMuPDF** on the same corpus and is **~5–6× faster than LangChain** with far less RAM on the text-only path.
 
 ## Feature matrix
 

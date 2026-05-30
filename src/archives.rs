@@ -70,12 +70,8 @@ pub fn collect_ingest_paths(
                 continue;
             }
         }
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if ingest_archives && ext == "zip" {
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        if ingest_archives && ext.eq_ignore_ascii_case("zip") {
             match expand_zip_archive(&path) {
                 Ok(members) => {
                     if let Some(parent) = members.first().and_then(|p| p.parent()) {
@@ -87,7 +83,7 @@ pub fn collect_ingest_paths(
             }
             continue;
         }
-        if crate::formats::is_supported_extension(&ext) {
+        if crate::formats::path_has_supported_extension(&path) {
             paths.push(path);
         }
     }

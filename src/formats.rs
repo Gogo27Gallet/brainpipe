@@ -19,8 +19,17 @@ pub const PLAIN_TEXT_EXTENSIONS: &[&str] = &[
 ];
 
 pub fn is_supported_extension(ext: &str) -> bool {
-    let e = ext.to_lowercase();
-    SUPPORTED_EXTENSIONS.contains(&e.as_str())
+    SUPPORTED_EXTENSIONS
+        .iter()
+        .any(|&s| ext.eq_ignore_ascii_case(s))
+}
+
+/// Fast path for walkdir filters (no per-file allocation).
+pub fn path_has_supported_extension(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .map(is_supported_extension)
+        .unwrap_or(false)
 }
 
 pub fn extract_html(path: &Path) -> Result<String, String> {
