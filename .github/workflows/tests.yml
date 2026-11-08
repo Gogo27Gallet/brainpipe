@@ -1,13 +1,19 @@
 name: Regression tests
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
 permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python: ['3.10', '3.12']
     steps:
       - uses: actions/checkout@v4
@@ -17,10 +23,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: python -m venv .venv
-      - run: .venv/bin/pip install 'maturin>=1.5,<2'
-      - run: .venv/bin/maturin develop --extras dev,api,cli,langchain
-        env:
-          VIRTUAL_ENV: ${{ github.workspace }}/.venv
-      - run: .venv/bin/python download_pdfium.py
-      - run: .venv/bin/ruff check brainpipe/api.py brainpipe/integrations/__init__.py brainpipe/integrations/langchain.py brainpipe/integrations/llamaindex.py tests/test_api.py tests/test_regressions.py download_pdfium.py
-      - run: .venv/bin/pytest -q
+      - name: Activate project environment
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "$GITHUB_WORKSPACE/.venv/Scripts" >> "$GITHUB_PATH"
+          else
+            echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          fi
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+      - run: python -m pip install 'maturin>=1.10,<2'
+      - run: maturin develop --extras dev,api,cli,langchain,llamaindex,tokens
+      - run: python download_pdfium.py
+      - run: ruff check brainpipe tools
+      - run: pytest -q --junitxml=test-results.xml
+      - run: python tools/evaluate.py --output evaluation.json
+      - if: runner.os == 'Linux'
+        run: python tools/fuzz_documents.py --rounds 40 --output mutation-smoke.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-${{ matrix.os }}-py${{ matrix.python }}
+          path: |
+            test-results.xml
+            evaluation.json
+            mutation-smoke.json

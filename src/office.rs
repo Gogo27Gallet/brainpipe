@@ -137,7 +137,8 @@ pub struct OfficeParser<R: Read + Seek> {
 impl<R: Read + Seek> OfficeParser<R> {
     /// Create a new OfficeParser wrapper around a generic Read + Seek reader (e.g. File).
     pub fn new(reader: R) -> Result<Self, String> {
-        let archive = ZipArchive::new(reader).map_err(|e| format!("Invalid ZIP archive: {}", e))?;
+        let mut archive = ZipArchive::new(reader).map_err(|e| format!("Invalid ZIP archive: {}", e))?;
+        crate::archive_limits::validate(&mut archive)?;
         Ok(Self { archive })
     }
 
@@ -189,6 +190,7 @@ pub fn extract_docx_pages(path: &Path) -> Result<Vec<OfficePage>, String> {
 pub fn extract_pptx_pages(path: &Path) -> Result<Vec<OfficePage>, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+    crate::archive_limits::validate(&mut archive)?;
     
     let mut slides = Vec::new();
     let prefix = "ppt/slides/slide";
@@ -255,6 +257,11 @@ fn write_cell_to_string(cell: &Data, out: &mut String) {
 }
 
 pub fn extract_xlsx_pages(path: &Path) -> Result<Vec<OfficePage>, String> {
+    if path.extension().and_then(|e| e.to_str()).is_some_and(|e| !e.eq_ignore_ascii_case("xls")) {
+        let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+        let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+        crate::archive_limits::validate(&mut archive)?;
+    }
     let mut workbook = open_workbook_auto(path).map_err(|e| e.to_string())?;
     let names = workbook.sheet_names().to_vec();
     let mut pages = Vec::with_capacity(names.len());
@@ -304,6 +311,7 @@ pub fn extract_xlsx_pages(path: &Path) -> Result<Vec<OfficePage>, String> {
 pub fn extract_odf_pages(path: &Path, ext: &str) -> Result<Vec<OfficePage>, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+    crate::archive_limits::validate(&mut archive)?;
     let content_name = "content.xml";
     let mut out_bytes = Vec::with_capacity(16 * 1024);
     if let Ok(entry) = archive.by_name(content_name) {
@@ -324,6 +332,7 @@ pub fn extract_odf_pages(path: &Path, ext: &str) -> Result<Vec<OfficePage>, Stri
 pub fn extract_epub_pages(path: &Path) -> Result<Vec<OfficePage>, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+    crate::archive_limits::validate(&mut archive)?;
     let mut items: Vec<(String, String)> = Vec::new();
     for i in 0..archive.len() {
         let file_entry = archive.by_index(i).map_err(|e| e.to_string())?;

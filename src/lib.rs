@@ -10,7 +10,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use pdfium_render::prelude::*;
 use std::sync::mpsc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, LazyLock};
 use std::thread;
 use crossbeam_channel;
@@ -23,6 +22,9 @@ use ort::execution_providers::{CUDAExecutionProvider, DirectMLExecutionProvider,
 use xxhash_rust::xxh3::xxh3_64;
 
 mod archives;
+mod archive_limits;
+mod stream;
+use stream::ChunkStream;
 mod extra_formats;
 mod formats;
 mod ingest_report;
@@ -180,7 +182,7 @@ fn finish_document_page_bulk(
 }
 
 fn send_error_page(
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     path_str: &str,
     page_index: usize,
     err: String,
@@ -214,85 +216,6 @@ impl DocumentPage {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
-enum ChunkStreamBackend {
-    Channel(Arc<Mutex<mpsc::Receiver<PyResult<DocumentPage>>>>),
-    Buffer {
-        pages: Vec<DocumentPage>,
-        index: AtomicUsize,
-    },
-}
-
-#[pyclass(unsendable)]
-pub struct ChunkStream {
-    backend: ChunkStreamBackend,
-}
-
-impl ChunkStream {
-    fn from_channel(rx: mpsc::Receiver<PyResult<DocumentPage>>) -> Self {
-        ChunkStream {
-            backend: ChunkStreamBackend::Channel(Arc::new(Mutex::new(rx))),
-        }
-    }
-
-    fn from_vec(pages: Vec<DocumentPage>) -> Self {
-        ChunkStream {
-            backend: ChunkStreamBackend::Buffer {
-                pages,
-                index: AtomicUsize::new(0),
-            },
-        }
-    }
-}
-
-#[pymethods]
-impl ChunkStream {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
-
-    /// Drain all pages in one Rust loop (much faster than repeated __next__ from Python).
-    fn drain_all(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Vec<DocumentPage>> {
-        match &mut slf.backend {
-            ChunkStreamBackend::Buffer { pages, index } => {
-                index.store(pages.len(), Ordering::Relaxed);
-                Ok(std::mem::take(pages))
-            }
-            ChunkStreamBackend::Channel(rx) => {
-                let rx = rx.clone();
-                py.allow_threads(move || {
-                    let lock = rx.lock().unwrap();
-                    let mut out = Vec::new();
-                    while let Ok(item) = lock.recv() {
-                        out.push(item?);
-                    }
-                    Ok(out)
-                })
-            }
-        }
-    }
-
-    #[allow(deprecated)]
-    fn __next__(slf: PyRefMut<'_, Self>, py: Python) -> Option<PyObject> {
-        match &slf.backend {
-            ChunkStreamBackend::Buffer { pages, index } => {
-                let i = index.fetch_add(1, Ordering::Relaxed);
-                if i >= pages.len() {
-                    return None;
-                }
-                return Some(pages[i].clone().into_py(py));
-            }
-            ChunkStreamBackend::Channel(rx) => {
-                let rx = rx.clone();
-                py.allow_threads(move || {
-                    let lock = rx.lock().unwrap();
-                    lock.recv().ok()
-                })
-                .map(|res| match res {
-                    Ok(doc) => doc.into_py(py),
-                    Err(e) => e.into_py(py),
-                })
-            }
-        }
-    }
-}
 
 fn page_cache_hash(chars: &[CharInfo], page_index: usize) -> u64 {
     let mut bytes = Vec::with_capacity(chars.len() + 16);
@@ -847,6 +770,9 @@ where
 }
 
 static PDFIUM_LIB_PATH: LazyLock<String> = LazyLock::new(|| {
+    if let Ok(path) = std::env::var("BRAINPIPE_PDFIUM_PATH") {
+        return path;
+    }
     let lib_name = Pdfium::pdfium_platform_library_name_at_path("");
     if let Ok(cwd) = std::env::current_dir() {
         let candidate = cwd.join(&lib_name);
@@ -1609,12 +1535,15 @@ fn extract_text_from_txt(path: &Path) -> Result<String, String> {
 fn extract_non_pdf_pages(path: &Path, ext: &str) -> (Vec<office::OfficePage>, Vec<String>) {
     let mut warnings = Vec::new();
     let pages = match ext {
-        "txt" | "md" => vec![office::OfficePage {
-            label: None,
-            text: extract_text_from_txt(path).unwrap_or_default(),
-        }],
+        "txt" | "md" => match extract_text_from_txt(path) {
+            Ok(text) => vec![office::OfficePage { label: None, text }],
+            Err(e) => { warnings.push(e); Vec::new() }
+        },
         "docx" | "xlsx" | "pptx" | "xls" | "odt" | "ods" | "odp" | "epub" | "doc" | "ppt" => {
-            office::extract_office_pages(path, ext).unwrap_or_default()
+            match office::extract_office_pages(path, ext) {
+                Ok(pages) => pages,
+                Err(e) => { warnings.push(e); Vec::new() }
+            }
         }
         "html" | "htm" => match formats::extract_html(path) {
             Ok(t) => vec![office::OfficePage { label: None, text: t }],
@@ -1679,10 +1608,10 @@ fn extract_non_pdf_pages(path: &Path, ext: &str) -> (Vec<office::OfficePage>, Ve
                 Vec::new()
             }
         },
-        _ if formats::is_plain_text_extension(ext) => vec![office::OfficePage {
-            label: None,
-            text: extra_formats::extract_plain(path).unwrap_or_default(),
-        }],
+        _ if formats::is_plain_text_extension(ext) => match extra_formats::extract_plain(path) {
+            Ok(text) => vec![office::OfficePage { label: None, text }],
+            Err(e) => { warnings.push(e); Vec::new() }
+        },
         _ => Vec::new(),
     };
     if (ext == "doc" || ext == "ppt") && !pages.is_empty() {
@@ -1776,7 +1705,7 @@ fn run_ocr_on_bytes_with_meta(
 #[allow(clippy::too_many_arguments)]
 fn process_raw_page(
     raw_page: RawPage,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     path_str: &str,
     metadata_arc: &Arc<HashMap<String, String>>,
     form_fields_arc: &Arc<HashMap<String, String>>,
@@ -1957,7 +1886,7 @@ fn process_pdf_ultrafast(
     pdfium: &Pdfium,
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     chunk_pages: bool,
     chunk_size: usize,
     max_pages: Option<usize>,
@@ -2108,7 +2037,7 @@ fn extract_pdf_page_texts(
 fn process_pdf_mupdf(
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     chunk_pages: bool,
     chunk_size: usize,
     max_pages: Option<usize>,
@@ -2160,7 +2089,7 @@ fn process_pdf_document(
     pdfium: &Pdfium,
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     backend: PdfBackend,
     layout: LayoutMode,
     use_ocr: bool,
@@ -2437,7 +2366,7 @@ fn process_pdf_document(
         let doc_chunks = fast_semantic_chunk(&full, chunk_size);
         let assigned = assign_doc_chunks_to_pages(&page_texts, &doc_chunks);
         let chunk_map: HashMap<usize, Vec<String>> = assigned.into_iter().collect();
-        let run = |tx: &mpsc::Sender<PyResult<DocumentPage>>, raw_page: RawPage| {
+        let run = |tx: &mpsc::SyncSender<PyResult<DocumentPage>>, raw_page: RawPage| {
             let pre = chunk_map.get(&raw_page.index).cloned();
             process_raw_page(
                 raw_page,
@@ -2553,7 +2482,7 @@ fn process_pdf_document(
 fn process_image_file(
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     use_ocr: bool,
     ocr_arc: &Arc<Option<OcrEngine>>,
     ocr_mode: ocr_enhance::OcrMode,
@@ -2830,21 +2759,12 @@ fn ingest(
             .map_err(|e| PyRuntimeError::new_err(format!("PDFium unavailable: {e}. Install PDFium or run download_pdfium.py.")))?;
     }
 
-    let mut auto_needs_ocr = false;
-    if ingest_strategy == IngestStrategy::Auto {
-        let lib_path = resolve_pdfium_path();
-        for path in &paths {
-            if path.extension().and_then(|s| s.to_str()) == Some("pdf") {
-                with_thread_pdfium(&lib_path, |pdfium| {
-                    if let Some(avg) = sample_pdf_avg_chars(pdfium, path, 5) {
-                        if page_quality::looks_scanned(avg) {
-                            auto_needs_ocr = true;
-                        }
-                    }
-                });
-            }
-        }
-    }
+    // Mixed PDFs need a per-page decision; a few sampled pages can miss scans.
+    let auto_needs_ocr = ingest_strategy == IngestStrategy::Auto && paths.iter().any(|p| {
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+        ext.eq_ignore_ascii_case("pdf") || formats::is_image_extension(ext)
+    });
+    use_ocr |= auto_needs_ocr;
 
     let (det_model_path, rec_model_path) = if use_ocr || auto_needs_ocr {
         let (d, r) = download_ocr_models_if_needed(py)?;
@@ -2902,11 +2822,10 @@ fn ingest(
         return Ok(ChunkStream::from_vec(pages));
     }
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(16);
     let repair_level = repair_level;
     let pdf_password_owned = pdf_password_owned;
     let pii_mode = pii_mode;
-    let small_batch = paths.len() <= 2 && !use_ocr && !use_vlm && !use_embeddings;
 
     let spawn_ingest = move || {
         let db = if use_cache { sled::open(".brainpipe_cache").ok() } else { None };
@@ -2944,17 +2863,7 @@ fn ingest(
                 .to_lowercase();
 
             if ext == "pdf" {
-                let file_use_ocr = if ingest_strategy == IngestStrategy::Auto {
-                    let mut scanned = false;
-                    with_thread_pdfium(&lib_path, |pdfium| {
-                        if let Some(avg) = sample_pdf_avg_chars(pdfium, &path, 5) {
-                            scanned = page_quality::looks_scanned(avg);
-                        }
-                    });
-                    scanned
-                } else {
-                    use_ocr
-                };
+                let file_use_ocr = use_ocr;
                 with_thread_pdfium(&lib_path, |pdfium| {
                     process_pdf_document(
                         pdfium,
@@ -3084,11 +2993,8 @@ fn ingest(
         archives::cleanup_temp_dirs(&archive_temp_dirs);
     };
 
-    if small_batch {
-        spawn_ingest();
-    } else {
-        thread::spawn(spawn_ingest);
-    }
+    // A bounded channel requires an independent producer, even for one file.
+    thread::spawn(spawn_ingest);
 
     Ok(ChunkStream::from_channel(rx))
 }
@@ -3213,9 +3119,28 @@ fn ingest_text(
     })
 }
 
+#[pyfunction]
+fn runtime_info() -> HashMap<String, String> {
+    let mut info = HashMap::new();
+    let path = resolve_pdfium_path();
+    info.insert("pdfium_path".into(), path.to_string());
+    let available = Pdfium::bind_to_library(&path)
+        .or_else(|_| Pdfium::bind_to_system_library()).is_ok();
+    info.insert("pdfium_available".into(), available.to_string());
+    info.insert("native_stream_capacity".into(), "16".into());
+    info
+}
+
+#[pyfunction]
+fn image_dimensions(path: &str) -> PyResult<(u32, u32)> {
+    image::image_dimensions(path).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 #[pymodule]
 fn brainpipe(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ingest, m)?)?;
+    m.add_function(wrap_pyfunction!(runtime_info, m)?)?;
+    m.add_function(wrap_pyfunction!(image_dimensions, m)?)?;
     m.add_function(wrap_pyfunction!(ingest_text, m)?)?;
     m.add_function(wrap_pyfunction!(build_ingest_report, m)?)?;
     m.add_function(wrap_pyfunction!(sanitize_pii, m)?)?;

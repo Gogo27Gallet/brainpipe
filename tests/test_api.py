@@ -1,7 +1,7 @@
 """HTTP boundary regression tests; native ingestion is covered separately."""
 
 from pathlib import Path
-from types import SimpleNamespace
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,22 +17,16 @@ def client():
 def test_upload_uses_server_filename_and_cleans_up(client, monkeypatch):
     seen = []
 
-    def ingest(directory, **options):
-        folder = Path(directory)
+    @contextmanager
+    def ingest(path, config):
+        folder = Path(path).parent
         seen.append(folder)
         assert [p.name for p in folder.iterdir()] == ["document.txt"]
         assert (folder / "document.txt").read_bytes() == b"hello"
-        assert options["use_cache"] is False
-        return iter([])
+        assert config.cache_dir is None
+        yield iter([])
 
-    monkeypatch.setattr(api.brainpipe, "ingest", ingest)
-    monkeypatch.setattr(
-        api.brainpipe,
-        "build_ingest_report",
-        lambda _: SimpleNamespace(
-            files_ok=0, files_failed=0, pages_ocr=0, avg_confidence=0, repair_count=0
-        ),
-    )
+    monkeypatch.setattr(api, "ingest_isolated", ingest)
     response = client.post("/ingest", files={"file": ("../../escaped.txt", b"hello")})
     assert response.status_code == 200
     assert seen and not seen[0].exists()
@@ -62,10 +56,10 @@ def test_upload_size_and_empty_rejected(client, monkeypatch):
 
 
 def test_errors_do_not_expose_internal_paths(client, monkeypatch):
-    def ingest(directory, **options):
+    def ingest(path, config):
         raise RuntimeError("/private/secret/file")
 
-    monkeypatch.setattr(api.brainpipe, "ingest", ingest)
+    monkeypatch.setattr(api, "ingest_isolated", ingest)
     response = client.post("/ingest", files={"file": ("a.txt", b"hello")})
     assert response.status_code == 500
     assert "secret" not in response.text
@@ -86,3 +80,18 @@ def test_real_text_upload(client):
     assert result["pages"][0]["content"] == "Hello BrainPipe"
     assert result["pages"][0]["path"] == "hello.txt"
     assert result["ingest_report"]["files_ok"] == 1
+
+
+def test_legacy_hierarchical_parameters_still_work(client):
+    response = client.post(
+        "/ingest",
+        data={"chunk_size": "120", "child_chunk_size": "30"},
+        files={"file": ("a.txt", b"A longer paragraph about source references. " * 8)},
+    )
+    assert response.status_code == 200
+    page = response.json()["pages"][0]
+    assert page["child_chunks"]
+    assert all(
+        0 <= child["parent_index"] < len(page["chunks"])
+        for child in page["child_chunks"]
+    )

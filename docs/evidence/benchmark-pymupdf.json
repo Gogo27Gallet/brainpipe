@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "source_sha256": "f330004b7fe5ae960db05d5d7c904870c866439147a40fe8c4adea648124ccdd",
+  "engine_binary_sha256": "1dc526d56b3d796e7fc80f979dc7ea7b0b3c2fc525484143578c27c5113ffad1",
+  "mode": "pymupdf",
+  "build_label": "release",
+  "brainpipe_version": "0.1.0",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "logical_cpus": 3,
+  "corpus_sha256": "c44c5aeaaaac5c39d8596ca97e4ff7db6df39a631dcd978d0b63acbef9bae54b",
+  "files": 8,
+  "input_bytes": 161271,
+  "cache": false,
+  "workers": null,
+  "chunking": false,
+  "runs": [
+    {
+      "seconds": 0.2907392739998613,
+      "first_page_seconds": 0.10591047599973535,
+      "pages": 200,
+      "errors": 0,
+      "characters": 588000,
+      "pages_per_second": 687.901559526132,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 59985920
+    },
+    {
+      "seconds": 0.27019666300020617,
+      "first_page_seconds": 0.08467932700023084,
+      "pages": 200,
+      "errors": 0,
+      "characters": 588000,
+      "pages_per_second": 740.201591608285,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 59998208
+    },
+    {
+      "seconds": 0.27914288700003453,
+      "first_page_seconds": 0.08629786099982084,
+      "pages": 200,
+      "errors": 0,
+      "characters": 588000,
+      "pages_per_second": 716.4789407654699,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 61390848
+    }
+  ],
+  "median_seconds": 0.27914288700003453,
+  "median_pages_per_second": 716.4789407654699,
+  "rss_sampling_ms": 10,
+  "note": "RSS sums may double-count shared mappings. Isolated mode includes safety/chunking overhead. Text hashes must agree for equivalent-output comparisons."
+}

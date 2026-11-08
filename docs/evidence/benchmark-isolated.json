@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "source_sha256": "f330004b7fe5ae960db05d5d7c904870c866439147a40fe8c4adea648124ccdd",
+  "engine_binary_sha256": "1dc526d56b3d796e7fc80f979dc7ea7b0b3c2fc525484143578c27c5113ffad1",
+  "mode": "isolated",
+  "build_label": "release",
+  "brainpipe_version": "0.1.0",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "logical_cpus": 3,
+  "corpus_sha256": "c44c5aeaaaac5c39d8596ca97e4ff7db6df39a631dcd978d0b63acbef9bae54b",
+  "files": 8,
+  "input_bytes": 161271,
+  "cache": false,
+  "workers": 2,
+  "chunking": true,
+  "runs": [
+    {
+      "seconds": 0.8138313689996721,
+      "first_page_seconds": 0.24751248399979886,
+      "pages": 200,
+      "errors": 0,
+      "characters": 594600,
+      "pages_per_second": 245.7511563431522,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 103137280
+    },
+    {
+      "seconds": 0.7769049659996199,
+      "first_page_seconds": 0.19789678699999058,
+      "pages": 200,
+      "errors": 0,
+      "characters": 594600,
+      "pages_per_second": 257.43174358869766,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 102936576
+    },
+    {
+      "seconds": 0.8186821469998904,
+      "first_page_seconds": 0.22099262799974895,
+      "pages": 200,
+      "errors": 0,
+      "characters": 594600,
+      "pages_per_second": 244.2950548426052,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 102961152
+    }
+  ],
+  "median_seconds": 0.8138313689996721,
+  "median_pages_per_second": 245.7511563431522,
+  "rss_sampling_ms": 10,
+  "note": "RSS sums may double-count shared mappings. Isolated mode includes safety/chunking overhead. Text hashes must agree for equivalent-output comparisons."
+}

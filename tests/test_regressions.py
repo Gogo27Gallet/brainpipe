@@ -161,3 +161,11 @@ for parallel in (False, True, True):
         check=True,
         timeout=30,
     )
+
+
+def test_llamaindex_ids_include_page_index(multipage_pdf):
+    pytest.importorskip("llama_index.core")
+    from brainpipe.integrations.llamaindex import SimpleDirectoryReader
+    documents = SimpleDirectoryReader(input_files=[str(multipage_pdf)], use_cache=False).load_data()
+    assert documents and len({d.id_ for d in documents}) == len(documents)
+    assert any("_page_2_" in d.id_ for d in documents)

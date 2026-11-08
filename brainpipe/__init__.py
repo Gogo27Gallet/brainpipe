@@ -1,19 +1,32 @@
-# BrainPipe: Fast document ingestion for AI pipelines (PDF, Office, images, web, code).
-#
-# Formats: pdf, docx/xlsx/pptx, odt/ods/odp, xls, rtf, epub, html, csv/json/xml/yaml,
-# eml, images, plain text & source code extensions. Legacy .doc/.ppt and .msg are stubbed.
-#
-# Key params on ingest(): strategy (fast|hi_res|ocr|auto), repair_pdf, repair_level,
-# ocr_mode (fast|quality|hybrid|vision), ocr_render_scale, pdf_password, ingest_archives.
-# After a run: build_ingest_report(list(stream)) for files_ok, pages_ocr, avg_confidence.
-from .brainpipe import *
+"""Document ingestion: native compatibility API and isolated, typed pipeline."""
+
+from .brainpipe import (
+    ChildChunk,
+    ChunkStream,
+    DocumentPage,
+    IngestReport,
+    build_ingest_report,
+    ingest,
+    ingest_text,
+    sanitize_pii,
+)
+from .configuration import IngestConfig
+from .records import Chunk, ExtractionError, PageResult
+from .pipeline import IsolatedStream, ingest_isolated
 
 __all__ = [
     "ingest",
     "ingest_text",
     "build_ingest_report",
+    "sanitize_pii",
     "DocumentPage",
     "ChildChunk",
     "ChunkStream",
     "IngestReport",
+    "IngestConfig",
+    "Chunk",
+    "ExtractionError",
+    "PageResult",
+    "IsolatedStream",
+    "ingest_isolated",
 ]

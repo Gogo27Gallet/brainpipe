@@ -1,10 +1,11 @@
 """
 Export compatible Unstructured — éléments typés à partir de DocumentPage BrainPipe.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 import os
 import re
 

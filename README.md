@@ -1,248 +1,205 @@
-# BrainPipe (Alpha) 🧠⚡
+# BrainPipe
 
-**Fast document ingestion library for AI pipelines (PDF, Office, images, HTML, CSV, JSON).**
+**Document ingestion for RAG, with inspectable output and isolated parser workers.**
 
-BrainPipe is an early-stage library built in Rust to help developers ingest PDF and Microsoft Office documents (DOCX, XLSX, PPTX) more efficiently for AI and LLM applications.
+BrainPipe combines a Rust extraction engine with a Python pipeline that supervises
+each document in a separate process. Extract text, preserve Markdown structures,
+create traceable chunks and export JSON, JSONL or Markdown.
 
-> **Note:** This is an experimental alpha project. We are looking for feedback and real-world edge cases to improve its robustness.
+**Alpha:** native-text and safety regressions are tested; OCR accuracy, complex
+PDF tables and document layout still need broader evaluation. See the
+[format matrix](docs/FORMATS.md) for precise limits. No universal speedup is claimed.
 
-## Why BrainPipe?
+## Install
 
-Ingesting large volumes of PDFs in Python can be:
-- **Slow**: Especially with large datasets and multithreading limitations.
-- **Memory-Heavy**: Often leading to unstable memory footprints.
-
-BrainPipe uses a Rust core powered by `pdfium` (C++) to provide a simple, parallelized, and memory-efficient ingestion path.
-
-## Install from source
-
-Requires Python 3.10+ and a current stable Rust toolchain.
+Requires Python 3.10–3.13 and stable Rust when building from source:
 
 ```sh
 git clone https://github.com/Gogo27Gallet/brainpipe.git
 cd brainpipe
 python -m venv .venv
 . .venv/bin/activate
-pip install 'maturin>=1.5,<2'
-maturin develop --release --extras cli,api
+pip install 'maturin>=1.10,<2'
+maturin develop --release --extras cli,api,tokens
 python download_pdfium.py
 ```
 
-On Windows, activate with `.venv\Scripts\activate`. The PDFium helper downloads
-the shared library for Linux, macOS or Windows (x64/arm64); run PDF examples
-from this directory or install PDFium on the system library path. Text and
-Office extraction do not require PDFium. Embeddings and table detection require
-a compatible ONNX Runtime shared library (1.24+); set `ORT_DYLIB_PATH` to its
-absolute path. OCR models download on first use.
+Windows activation: `.venv\Scripts\activate`. Run PDF examples from the directory
+containing the PDFium library, put it on the system library path, or set
+`BRAINPIPE_PDFIUM_PATH` to its absolute path. The helper supports Linux, macOS and
+Windows, x64/arm64 where an upstream binary exists. It also accepts `--release TAG`.
 
-Install `.[langchain]` or `.[llamaindex]` for framework integrations and `.[dev]`
-for tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow
-and [SECURITY.md](SECURITY.md) before exposing the API or parsing untrusted files.
+Published wheels can be built by the CI workflow; release availability is not
+implied by this source installation example. See [release gates](docs/RELEASING.md).
 
-## Quickstart
+| Extra | Purpose |
+|---|---|
+| `cli` | Typer CLI, progress UI, legacy PDF inspection |
+| `api` | FastAPI, multipart uploads, Uvicorn |
+| `tokens` | Exact `cl100k_base` token budgets; vocabulary bundled for offline use |
+| `langchain` / `llamaindex` | Independent framework adapters |
+| `dev` | Regression tests, lint, synthetic fixture generation |
+| `benchmark` | RSS measurements and optional PyMuPDF comparisons |
+
+## Isolated Python pipeline
+
+Use this mode for untrusted inputs or workloads needing timeouts and cancellation.
+Save the following as a script; the `__main__` guard is required by spawned workers.
 
 ```python
-from brainpipe import ingest
+from brainpipe import IngestConfig, ingest_isolated
+from brainpipe.export import iter_export
 
-# ingest() returns a ChunkStream iterator — materialize with list()
-stream = ingest("./data")
-docs = list(stream)
 
-for doc in docs:
-    print(f"{doc.path}: {doc.num_chunks} chunks")
+def main():
+    config = IngestConfig(
+        workers=2,
+        timeout_seconds=60,
+        memory_mb=2048,
+        max_pages=500,
+        chunk_size=400,
+        chunk_overlap=40,
+        chunk_unit="tokens",  # install the tokens extra
+        pii_mode="off",
+    )
+    with ingest_isolated("./documents", config) as pages:
+        with open("results.jsonl", "w", encoding="utf-8") as target:
+            for part in iter_export(pages, "jsonl"):
+                target.write(part)
 
-# Drop-in PyMuPDF-style plain text per page / sheet / slide
-from brainpipe import ingest_text
-pages = ingest_text("./data")  # list[str]: PDF pages, XLSX sheets, PPTX slides, one DOCX/txt per file
 
-# Advanced ingestion: strategy, repair, OCR modes, quality metadata
-docs = list(ingest(
-    "./data",
-    pattern=".*_confidential\\.pdf$",
-    strategy="auto",         # fast | hi_res | ocr | auto (auto enables OCR on scanned PDFs)
-    backend="pdfium",        # auto | pdfium | mupdf (optional build feature)
-    repair_pdf=True,         # qpdf/gs repair on pdfium open failure only
-    ocr_mode="hybrid",       # fast | quality | hybrid | vision (opt-in; default fast)
-    ocr_render_scale=1.25,   # render DPI scale when OCR runs
-    repair_level="normal",   # normal | aggressive (qpdf/gs chain)
-    pdf_password=None,       # encrypted PDFs
-    ingest_archives=False,   # one-level .zip expansion
-    use_ocr=False,           # explicit OCR; strategy=ocr or auto also trigger OCR
-    chunk_size=1000,
-    child_chunk_size=200,
-))
-# Per-page quality: doc.extraction_confidence, doc.ocr_used, doc.text_density,
-# doc.warnings, doc.language, doc.error (set when PDF open fails)
-
-# Easily navigate the context-rich parent-child mapping for advanced RAG
-for doc in docs:
-    # 1. Print structured document metadata
-    print("Metadata:", doc.metadata)
-    
-    # 2. Inspect interactive PDF form fields (AcroForms)
-    print("Form Fields:", doc.form_fields)
-    
-    # 3. Process hierarchical chunks
-    for child in doc.child_chunks:
-        print(f"Child text: {child.text}")
-        print(f"Linked Parent context: {doc.chunks[child.parent_index]}")
+if __name__ == "__main__":
+    main()
 ```
 
+`PageResult` includes `source`, a SHA-256 `source_id`, `page_index`, content,
+quality metadata, warnings and a typed error. A chunk carries a stable `id`, its
+section, structure kind and exact `[start_char, end_char)` span in `page.content`.
+These are Unicode character offsets, not PDF coordinates. `bbox` stays `None`
+until a parser provides real geometry. See [output schema](docs/OUTPUT.md).
 
-## 🖥️ Command Line Interface (CLI)
+Tables expressed in Markdown and fenced code blocks remain intact. A block
+larger than the requested chunk budget is emitted with `oversized=True` and a
+warning. Paragraphs are split with configurable overlap. This preserves content
+without pretending all structured blocks fit every embedding model's budget.
 
-BrainPipe comes with a built-in Typer-powered CLI to run ingestion pipelines or launch servers directly from the terminal.
+Use the stream as a context manager. `cancel()` can be called from another
+thread; `close()` releases workers when stopping early. File completion order
+may vary; use `source` and `page_index` when assembling documents.
 
-```bash
-# General help
-brainpipe --help
+## CLI
 
-# Scan directory health (broken PDFs, counts)
-brainpipe doctor ./data
-
-# Run summary after ingest
-report = build_ingest_report(list(ingest("./data", strategy="fast")))
-print(report.files_ok, report.avg_confidence, report.pages_ocr)
-
-# Run ingestion on a directory with progress indicators
-brainpipe ingest ./data --no-cache --chunk-size 800 --strategy fast
-
-# Run ingestion and save the chunks directly to a JSON file
-brainpipe ingest ./data --output results.json
-
-# Start the FastAPI service
+```sh
+brainpipe doctor --json
+brainpipe doctor ./documents
+brainpipe ingest-safe ./documents --format jsonl -o results.jsonl
+brainpipe ingest-safe ./documents --unit tokens --chunk-size 400 --overlap 40
+brainpipe ingest-safe ./documents --workers 2 --timeout 30 --memory-mb 2048
 brainpipe serve --host 127.0.0.1 --port 8000
 ```
 
-## 🌐 FastAPI Integration
+`ingest-safe` exits with code 2 if extraction errors are present and 130 after an
+interrupt. JSONL can contain successful pages followed by a file-level error;
+inspect errors rather than assuming an existing output file means full success.
+The legacy `ingest`, `bench` and `compare` CLI commands remain available.
 
-Serve your ingestion pipeline as a high-performance microservice.
+## Local document explorer and HTTP API
 
-### HTTP Endpoints:
-- `GET /health` - Checks engine status and reports ONNX Runtime execution providers (e.g. GPU).
-- `POST /ingest` - Accepts file upload and parses/chunks the document using standard engine parameters.
+Open **[http://127.0.0.1:8000/demo](http://127.0.0.1:8000/demo)** after starting the
+server. Upload a document, inspect pages and chunks, highlight a chunk's exact
+source span, cancel the job and download results. The UI uses no external scripts.
 
----
+![BrainPipe document explorer](docs/evidence/demo-desktop.png)
 
-## 🔌 Integrations (Zero-Friction Drop-in)
+| Endpoint | Behavior |
+|---|---|
+| `GET /health` | Service liveness; does not claim every parser/model is ready |
+| `GET /diagnostics` | Disposable native probe, model presence and tool checks |
+| `POST /ingest` | Synchronous extraction with the legacy response shape and `chunk_details` |
+| `POST /jobs` | Submit a document; returns 202 and a job ID |
+| `GET /jobs/{id}` | Status, page/error counts and cancellation state |
+| `DELETE /jobs/{id}` | Request cancellation |
+| `GET /jobs/{id}/results?format=jsonl` | Stream JSONL, JSON or Markdown results |
 
-BrainPipe offers zero-friction drop-in replacements for standard loaders in major AI frameworks, to connect document extraction to existing pipelines. Performance depends on the documents, build settings and extraction options; benchmark your workload.
+The local store runs up to two jobs with eight admitted active/queued jobs.
+Results expire after 15 minutes and are lost on restart. Run **one Uvicorn
+server process**; a shared durable queue is required before scaling API replicas.
+Jobs may finish with partial results and status `failed` or `cancelled`.
 
-### LangChain Integration
-```python
-# Replace: from langchain_community.document_loaders import PyPDFLoader
-from brainpipe.integrations.langchain import PyPDFLoader
+There is no built-in authentication. Bind to localhost for personal use. See
+[SECURITY.md](SECURITY.md) before exposing the service.
 
-loader = PyPDFLoader("./large_document.pdf", chunk_size=1000)
-# Instant load to LangChain Document schema!
-documents = loader.load() 
-```
+## OCR, models and cache
 
-### Unstructured-compatible export
-```python
-from brainpipe.integrations.unstructured import partition
+`strategy="auto"` loads OCR models for PDFs/images and makes the OCR decision
+per page, so mixed native/scanned PDFs are considered. First use downloads RTen
+OCR models. `strategy="ocr"` enables the OCR recovery path; it does not promise
+that every already-readable page is rasterized. OCR language and quality support
+must be evaluated on your corpus.
 
-elements = partition("./data", strategy="fast")
-for el in elements:
-    print(el.category, el.text[:80])
-```
-
-### LlamaIndex Integration
-```python
-# Replace: from llama_index.core import SimpleDirectoryReader
-from brainpipe.integrations.llamaindex import SimpleDirectoryReader
-
-reader = SimpleDirectoryReader(input_dir="./data", chunk_size=1000)
-# Instant indexation using BrainPipe fast engine
-documents = reader.load_data()
-```
-
-## Office (DOCX / XLSX / PPTX)
-
-Walk any directory passed to `ingest()` / `ingest_text()` — `.docx`, `.xlsx`, and `.pptx` are discovered alongside PDFs and text files.
-
-- **DOCX / PPTX**: ZIP + streaming XML (`quick-xml`) — text from `w:t` / `a:t` nodes; headers/footers included for DOCX.
-- **XLSX**: `calamine` — all sheets, rows streamed as `| cell | cell |` lines (formula values only, not macro/VBA).
-- **Output**: one `DocumentPage` per sheet (XLSX) or slide (PPTX); one page per DOCX/txt file. Metadata: `source_type`, `sheet` or `slide` when applicable.
-
-```python
-from brainpipe import ingest
-
-for doc in ingest("./reports", strategy="fast", chunk_pages=True):
-    if doc.metadata.get("source_type") == "xlsx":
-        print(doc.metadata.get("sheet"), doc.num_chunks)
-    print(doc.content[:200])
-```
-
-## Reading order (multi-column & layout)
-
-For `layout_mode=multi_column` or `strategy=hi_res`, page text is assembled with a **recursive XY-Cut** (pure geometry, no ML) on PDFium character bounding boxes. Blocks are split on the largest horizontal or vertical whitespace gap until reading order is stable — so two-column papers, full-width titles (Z-pattern), and side callouts are read column-by-column instead of left-to-right across the page.
-
-When `use_vlm` is enabled on complex layouts, detected YOLOv8 zones are sorted with the same XY-Cut before table markdown is emitted. The `strategy=fast` path uses bulk PDFium text and skips XY-Cut. Figures without extractable text are unchanged (OCR/`use_ocr` still applies on empty pages).
-
-## Features
-- **Parallel Processing**: Powered by Rust's `rayon`.
-- **Reliable Engine**: Uses Google's `pdfium`; Office via `quick-xml` + `calamine`.
-- **Built-in Cache**: Fast metadata-based caching.
-- **Table-Aware Semantic Splitting**: Retains Markdown and VLM-extracted tables as indivisible blocks to protect tabular context.
-- **ML-Powered OCR Fallback**: Integrated pure-Rust `ocrs` neural engine that triggers automatically on scanned/textless PDF pages.
-- **Custom Document Filters**: Restrict ingestion to specific file names or structures using custom regex patterns.
-- **Native Hierarchical (Parent-Child) Chunking**: Generate nested semantic sub-chunks mapped perfectly to larger parent contexts.
-- **Enterprise AcroForms & Metadata Extraction**: Extract PDF catalog metadata and interactive form fields automatically.
-- **Hardware-Accelerated Inflow**: Configured to run ONNX models with CUDA, DirectML, and CoreML.
-- **Rich Observability**: Full terminal logging with live progress bars.
-
-## Supported formats
-
-| Category | Extensions |
-|----------|------------|
-| PDF | `.pdf` (`pdf_password`, `repair_level`, `repair_pdf`) |
-| Office Open XML | `.docx`, `.xlsx`, `.pptx` |
-| ODF | `.odt`, `.ods`, `.odp` |
-| Legacy Office | `.xls` (calamine); `.doc`/`.ppt` stub with warning |
-| Web / data | `.html`, `.csv`, `.json`, `.xml`, `.yaml`, `.ndjson`, `.log` |
-| Email | `.eml`; `.msg` stub with warning |
-| eBooks / markup | `.epub`, `.rtf`, `.tex`, `.rst`, `.md`, `.txt` |
-| Images | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.webp`, `.bmp` |
-| Source code | `.py`, `.js`, `.ts`, `.rs`, `.go`, `.java`, `.c`, `.cpp`, `.h`, … |
-| Archives | `.zip` one-level extract (`ingest_archives=True`) |
-
-## Benchmarks
-
-```bash
-python bench.py                    # BrainPipe vs PyMuPDF vs LangChain (1500 pages)
-python bench.py --modes text pymupdf
-brainpipe bench --quick            # 100 pages + RAM
-brainpipe compare ./data           # per-file vs PyMuPDF
-```
-
-Text-only fair compare: `chunk_pages=False`, `strategy="fast"`, `use_cache=False`.
-
-Optional native CPU tuning (not enabled in `Cargo.toml` by default):
-
-```bash
-# Linux/macOS example
-RUSTFLAGS="-C target-cpu=native" cargo build --release
-```
-
-## Optional MuPDF build
+Embeddings/table detection require ONNX Runtime API 24 (1.24+) and compatible
+models. Set `ORT_DYLIB_PATH` to the shared library. The base build does not
+download CUDA binaries. The optional MuPDF backend requires an explicit Cargo
+feature and separate licensing/build review:
 
 ```sh
 maturin develop --release --features mupdf
 ```
 
-MuPDF may need additional native build dependencies, including the VS2019 v142
-toolset on Windows. Review its licensing terms before enabling redistribution.
+The isolated pipeline defaults to **no persistent text cache**. Set `cache_dir`
+explicitly to enable its versioned content/configuration cache. It hashes a
+private file snapshot and never uses path/mtime alone as identity. The native
+compatibility API defaults to sled caching in `.brainpipe_cache`; set
+`use_cache=False` for sensitive inputs.
 
-## Release preparation
+## Native compatibility API and integrations
 
-The project remains alpha. Linux regression tests cover core extraction, API
-validation, archive handling, Unicode chunking and multi-page loading. GPU,
-OCR/model quality and other operating systems need separate validation for a
-release. No universal speedup factor is claimed.
+For trusted inputs, the original Rust-backed API remains available:
 
-The existing `LICENSE` attributes Benoit Blanchon and refers to PDFium third-party
-notices. Before publishing a distribution, the maintainer needs to confirm the
-license for BrainPipe's own code and retain the notices for redistributed native
-libraries and model assets. The optional MuPDF backend has separate licensing
-terms; enabling it requires an explicit Cargo feature (`--features mupdf`).
+```python
+from brainpipe import ingest, ingest_text, build_ingest_report
+
+pages = list(ingest("./documents", use_cache=False, chunk_size=1000))
+texts = ingest_text("./documents")
+report = build_ingest_report(pages)
+```
+
+It runs in the calling process and does not provide the isolated mode's hard
+worker deadlines/resource supervision. Native streams use a 16-page bounded
+channel and expose `close()`.
+
+```python
+from brainpipe.integrations.langchain import PyPDFLoader
+from brainpipe.integrations.llamaindex import SimpleDirectoryReader
+```
+
+These adapters use the native API and require their respective extras. They
+preserve multi-page metadata; LlamaIndex IDs include the page index. A local,
+provider-independent retrieval example is in [examples/retrieve.py](examples/retrieve.py).
+
+## Validation and performance
+
+```sh
+maturin develop --extras dev,api,cli,langchain,tokens
+pytest -q
+ruff check brainpipe tools
+python tools/evaluate.py --output evaluation.json
+python tools/fuzz_documents.py --seed 1729 --rounds 40
+python tools/benchmark.py ./pdf-corpus --mode native --runs 3 --build-label release
+```
+
+[Recorded evidence](docs/evidence/README.md) covers a small synthetic corpus,
+mutation smoke tests and explicitly labeled performance runs. The benchmark
+records first-page latency, throughput, errors, content hashes and sampled
+process-tree RSS. Compare equivalent text outputs before comparing speeds;
+isolated mode also pays for worker startup, safety checks and chunking.
+
+## Contributing and licensing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [architecture](docs/ARCHITECTURE.md),
+[changelog](CHANGELOG.md) and [release gates](docs/RELEASING.md).
+The inherited [LICENSE](LICENSE) attributes the PDFium binary distributor.
+The maintainer must confirm BrainPipe's own licensing before publishing a new
+distribution; this work does not silently relicense existing contributions.
+Tokenizer attribution and its bundled asset are described in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

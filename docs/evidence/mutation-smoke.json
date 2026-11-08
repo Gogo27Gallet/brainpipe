@@ -1,0 +1,9 @@
+{
+  "seed": 1729,
+  "rounds": 40,
+  "files_reported": 40,
+  "resource_limited_files": 0,
+  "findings": [],
+  "passed": true,
+  "scope": "Small deterministic mutation corpus; not exhaustive parser fuzzing."
+}
