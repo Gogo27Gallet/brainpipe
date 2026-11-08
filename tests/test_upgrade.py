@@ -87,7 +87,7 @@ def test_sanitize_pii_redact():
     assert "EMAIL" in types or n > 0
 
 
-def test_msg_stub_warning():
+def test_invalid_msg_surfaces_format_error():
     with tempfile.TemporaryDirectory() as tmp:
         p = os.path.join(tmp, "x.msg")
         with open(p, "wb") as f:
@@ -95,6 +95,7 @@ def test_msg_stub_warning():
         pages = _pages(brainpipe.ingest(tmp, use_cache=False, strategy="fast"))
     assert pages
     assert any("msg" in w.lower() for p in pages for w in (p.warnings or []))
+    assert any(p.error and "Invalid MSG format" in p.error for p in pages)
 
 
 def test_bad_pdf_surfaces_error_not_silent(tmp_path):

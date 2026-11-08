@@ -6,18 +6,18 @@ import brainpipe
 try:
     from langchain_core.documents import Document as LCDocument
     from langchain_core.document_loaders import BaseLoader
-except ImportError:
-    # Fallback if langchain is not installed
-    class BaseLoader:
-        pass
-    class LCDocument:
-        pass
+except ImportError as exc:
+    raise ImportError(
+        "Install BrainPipe's langchain extra: pip install 'brainpipe[langchain]'"
+    ) from exc
+
 
 class PyPDFLoader(BaseLoader):
     """
     Drop-in replacement for langchain_community.document_loaders.PyPDFLoader
-    that uses BrainPipe under the hood. 100x faster, zero friction.
+    that uses BrainPipe for native document extraction.
     """
+
     def __init__(
         self,
         file_path: str,
@@ -26,7 +26,7 @@ class PyPDFLoader(BaseLoader):
         use_ocr: bool = False,
         use_embeddings: bool = False,
         use_vlm: bool = False,
-        **kwargs
+        **kwargs,
     ) -> None:
         if BaseLoader is object or not hasattr(BaseLoader, "__init__"):
             raise ImportError(
@@ -44,7 +44,7 @@ class PyPDFLoader(BaseLoader):
         abs_path = os.path.abspath(self.file_path)
         directory = os.path.dirname(abs_path)
         filename = os.path.basename(abs_path)
-        
+
         # Ingest using brainpipe
         stream = brainpipe.ingest(
             directory=directory,
@@ -53,18 +53,18 @@ class PyPDFLoader(BaseLoader):
             use_ocr=self.use_ocr,
             pattern=f"^{re.escape(filename)}$",
             use_embeddings=self.use_embeddings,
-            use_vlm=self.use_vlm
+            use_vlm=self.use_vlm,
         )
-        pages = list(stream)
-        if not pages:
-            return
-        doc = pages[0]
-        for i, chunk_text in enumerate(doc.chunks):
-            metadata = doc.metadata.copy()
-            metadata["source"] = self.file_path
-            metadata["chunk_index"] = i
-            metadata.update(doc.form_fields)
-            yield LCDocument(page_content=chunk_text, metadata=metadata)
+        for doc in stream:
+            if doc.error:
+                raise RuntimeError(f"Ingestion failed for {doc.path}: {doc.error}")
+            for i, chunk_text in enumerate(doc.chunks):
+                metadata = doc.metadata.copy()
+                metadata.update(doc.form_fields)
+                metadata.update(
+                    source=self.file_path, page=doc.page_index, chunk_index=i
+                )
+                yield LCDocument(page_content=chunk_text, metadata=metadata)
 
     def load(self) -> List[LCDocument]:
         return list(self.lazy_load())
@@ -75,6 +75,7 @@ class BrainPipeLoader(BaseLoader):
     Highly optimized document loader that uses BrainPipe for ultra-fast multi-format ingestion.
     Supports directories, PDFs, text, Office docs, caching, and semantic chunking.
     """
+
     def __init__(
         self,
         path: str,
@@ -84,7 +85,7 @@ class BrainPipeLoader(BaseLoader):
         use_ocr: bool = False,
         pattern: Optional[str] = None,
         use_embeddings: bool = False,
-        use_vlm: bool = False
+        use_vlm: bool = False,
     ) -> None:
         if BaseLoader is object:
             raise ImportError("langchain is required to use BrainPipeLoader.")
@@ -114,14 +115,15 @@ class BrainPipeLoader(BaseLoader):
             use_ocr=self.use_ocr,
             pattern=pattern,
             use_embeddings=self.use_embeddings,
-            use_vlm=self.use_vlm
+            use_vlm=self.use_vlm,
         )
 
-        for doc in list(stream):
+        for doc in stream:
             for i, chunk_text in enumerate(doc.chunks):
                 metadata = doc.metadata.copy()
                 metadata["source"] = doc.path
                 metadata["chunk_index"] = i
+                metadata["page"] = doc.page_index
                 metadata.update(doc.form_fields)
                 yield LCDocument(page_content=chunk_text, metadata=metadata)
 

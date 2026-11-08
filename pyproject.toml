@@ -5,7 +5,8 @@ build-backend = "maturin"
 [project]
 name = "brainpipe"
 version = "0.1.0"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
+readme = "README.md"
 description = "Fast and reliable document ingestion engine for AI pipelines."
 classifiers = [
     "Programming Language :: Rust",
@@ -16,8 +17,22 @@ classifiers = [
 brainpipe = "brainpipe.cli:app"
 
 [project.optional-dependencies]
-# pip install -e ".[mupdf]" active la feature Cargo du même nom
-mupdf = []
+cli = ["typer>=0.12,<1", "rich>=13,<16", "pypdf>=5,<8"]
+api = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "python-multipart>=0.0.18"]
+langchain = ["langchain-core>=0.3,<2"]
+llamaindex = ["llama-index-core>=0.12,<1"]
+dev = ["pytest>=8,<10", "httpx>=0.27,<1", "ruff>=0.9,<1", "reportlab>=4,<5"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+python-source = "."
+module-name = "brainpipe.brainpipe"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

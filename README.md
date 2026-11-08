@@ -14,6 +14,31 @@ Ingesting large volumes of PDFs in Python can be:
 
 BrainPipe uses a Rust core powered by `pdfium` (C++) to provide a simple, parallelized, and memory-efficient ingestion path.
 
+## Install from source
+
+Requires Python 3.10+ and a current stable Rust toolchain.
+
+```sh
+git clone https://github.com/Gogo27Gallet/brainpipe.git
+cd brainpipe
+python -m venv .venv
+. .venv/bin/activate
+pip install 'maturin>=1.5,<2'
+maturin develop --release --extras cli,api
+python download_pdfium.py
+```
+
+On Windows, activate with `.venv\Scripts\activate`. The PDFium helper downloads
+the shared library for Linux, macOS or Windows (x64/arm64); run PDF examples
+from this directory or install PDFium on the system library path. Text and
+Office extraction do not require PDFium. Embeddings and table detection require
+a compatible ONNX Runtime shared library (1.24+); set `ORT_DYLIB_PATH` to its
+absolute path. OCR models download on first use.
+
+Install `.[langchain]` or `.[llamaindex]` for framework integrations and `.[dev]`
+for tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow
+and [SECURITY.md](SECURITY.md) before exposing the API or parsing untrusted files.
+
 ## Quickstart
 
 ```python
@@ -101,7 +126,7 @@ Serve your ingestion pipeline as a high-performance microservice.
 
 ## 🔌 Integrations (Zero-Friction Drop-in)
 
-BrainPipe offers zero-friction drop-in replacements for standard loaders in major AI frameworks, allowing you to instantly boost ingestion speed by 100x with a single line change.
+BrainPipe offers zero-friction drop-in replacements for standard loaders in major AI frameworks, to connect document extraction to existing pipelines. Performance depends on the documents, build settings and extraction options; benchmark your workload.
 
 ### LangChain Integration
 ```python
@@ -200,21 +225,24 @@ Optional native CPU tuning (not enabled in `Cargo.toml` by default):
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-## Installation
-*(Automated wheels for Mac/Windows/Linux coming soon)*
+## Optional MuPDF build
 
-```bash
-git clone https://github.com/brainpipe-ai/brainpipe
-cd brainpipe
-pip install .
-
-# Rust extension (release)
-cargo build --release
-# If pip install fails because pdfium.dll is locked, close Python processes and retry.
-
-# Optional MuPDF backend (Linux/macOS or Windows + VS2019 v142 toolset):
-cargo build --release --features mupdf
+```sh
+maturin develop --release --features mupdf
 ```
 
-## License
-MIT
+MuPDF may need additional native build dependencies, including the VS2019 v142
+toolset on Windows. Review its licensing terms before enabling redistribution.
+
+## Release preparation
+
+The project remains alpha. Linux regression tests cover core extraction, API
+validation, archive handling, Unicode chunking and multi-page loading. GPU,
+OCR/model quality and other operating systems need separate validation for a
+release. No universal speedup factor is claimed.
+
+The existing `LICENSE` attributes Benoit Blanchon and refers to PDFium third-party
+notices. Before publishing a distribution, the maintainer needs to confirm the
+license for BrainPipe's own code and retain the notices for redistributed native
+libraries and model assets. The optional MuPDF backend has separate licensing
+terms; enabling it requires an explicit Cargo feature (`--features mupdf`).
