@@ -27,7 +27,7 @@ itertools = "0.14.0"
 ocrs = "0.12.2"
 rten = "0.24.0"
 rten-tensor = "0.24.0"
-ort = { version = "2.0.0-rc.9", features = ["cuda", "directml", "coreml", "download-binaries"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "cuda", "directml", "coreml", "load-dynamic", "api-24"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 quick-xml = { version = "0.37", default-features = false }
@@ -44,6 +44,7 @@ crossbeam-channel = "0.5"
 mimalloc = "0.1"
 # Lecteur de fichier Compound File Binary (CFB) pour Outlook .msg
 cfb = "0.7"
+tempfile = "3"
 
 [profile.release]
 # Opt-7: Compilation agressive — LTO inter-crates, unite tous les codegen units

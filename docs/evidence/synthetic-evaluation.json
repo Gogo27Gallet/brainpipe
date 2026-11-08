@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "documents": [
+    {
+      "source": "guide.md",
+      "expected_pages": 1,
+      "actual_pages": 1,
+      "required_phrase_recall": 1.0,
+      "exact_chunk_spans": true,
+      "non_whitespace_coverage": true,
+      "errors": []
+    },
+    {
+      "source": "table.md",
+      "expected_pages": 1,
+      "actual_pages": 1,
+      "required_phrase_recall": 1.0,
+      "exact_chunk_spans": true,
+      "non_whitespace_coverage": true,
+      "errors": []
+    },
+    {
+      "source": "code.md",
+      "expected_pages": 1,
+      "actual_pages": 1,
+      "required_phrase_recall": 1.0,
+      "exact_chunk_spans": true,
+      "non_whitespace_coverage": true,
+      "errors": []
+    },
+    {
+      "source": "multipage.pdf",
+      "expected_pages": 3,
+      "actual_pages": 3,
+      "required_phrase_recall": 1.0,
+      "exact_chunk_spans": true,
+      "non_whitespace_coverage": true,
+      "errors": []
+    },
+    {
+      "source": "columns.pdf",
+      "expected_pages": 1,
+      "actual_pages": 1,
+      "required_phrase_recall": 1.0,
+      "exact_chunk_spans": true,
+      "non_whitespace_coverage": true,
+      "errors": []
+    }
+  ],
+  "scope": "Synthetic native-text PDF/Markdown smoke evaluation. Does not establish OCR accuracy, table geometry or reading order quality."
+}

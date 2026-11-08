@@ -5,8 +5,15 @@ import typer
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, MofNCompleteColumn
-from rich import print as rprint
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+    MofNCompleteColumn,
+)
 import pypdf
 import re
 
@@ -16,12 +23,49 @@ app = typer.Typer(help="BrainPipe CLI: Fast and reliable document ingestion engi
 console = Console()
 
 SUPPORTED_EXTS = {
-    ".pdf", ".txt", ".md", ".docx", ".xlsx", ".pptx", ".xls", ".doc", ".ppt",
-    ".odt", ".ods", ".odp", ".rtf", ".epub", ".tex", ".rst",
-    ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".webp", ".bmp",
-    ".html", ".htm", ".csv", ".json", ".xml", ".yaml", ".yml", ".ndjson", ".log",
-    ".eml", ".msg",
-    ".py", ".js", ".ts", ".rs", ".go", ".java", ".c", ".cpp", ".h",
+    ".pdf",
+    ".txt",
+    ".md",
+    ".docx",
+    ".xlsx",
+    ".pptx",
+    ".xls",
+    ".doc",
+    ".ppt",
+    ".odt",
+    ".ods",
+    ".odp",
+    ".rtf",
+    ".epub",
+    ".tex",
+    ".rst",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tiff",
+    ".tif",
+    ".webp",
+    ".bmp",
+    ".html",
+    ".htm",
+    ".csv",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".ndjson",
+    ".log",
+    ".eml",
+    ".msg",
+    ".py",
+    ".js",
+    ".ts",
+    ".rs",
+    ".go",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
     ".zip",
 }
 
@@ -30,7 +74,7 @@ def count_pages(directory: str, pattern_str: Optional[str]) -> tuple[int, int]:
     total_files = 0
     total_pages = 0
     pat = re.compile(pattern_str) if pattern_str else None
-    
+
     for path in Path(directory).rglob("*"):
         if not path.is_file():
             continue
@@ -39,7 +83,7 @@ def count_pages(directory: str, pattern_str: Optional[str]) -> tuple[int, int]:
             continue
         if pat and not pat.search(path.name):
             continue
-            
+
         total_files += 1
         if ext == ".pdf":
             try:
@@ -50,39 +94,93 @@ def count_pages(directory: str, pattern_str: Optional[str]) -> tuple[int, int]:
                 total_pages += 1
         else:
             total_pages += 1
-            
+
     return total_files, total_pages
+
 
 @app.command()
 def ingest(
-    directory: Path = typer.Argument(..., help="Directory containing documents to ingest."),
-    chunk_size: int = typer.Option(1000, "--chunk-size", "-c", help="Chunk size for semantic text splitting."),
-    child_chunk_size: Optional[int] = typer.Option(None, "--child-chunk-size", help="Optional smaller child chunk size for hierarchical chunking."),
-    use_cache: bool = typer.Option(True, "--cache/--no-cache", help="Enable or disable caching of processed pages."),
-    use_ocr: bool = typer.Option(False, "--ocr/--no-ocr", help="Enable OCR for scanned/image-only PDFs."),
-    pattern: Optional[str] = typer.Option(None, "--pattern", "-p", help="Regex pattern to filter filenames."),
-    use_embeddings: bool = typer.Option(False, "--embeddings/--no-embeddings", help="Use local embeddings for semantic boundary detection."),
-    use_vlm: bool = typer.Option(False, "--vlm/--no-vlm", help="Use table-detection model to rebuild tables in markdown."),
-    max_pages: Optional[int] = typer.Option(None, "--max-pages", help="Max pages to process per document."),
-    strategy: str = typer.Option("fast", "--strategy", help="fast | hi_res | ocr | auto"),
-    repair_pdf: bool = typer.Option(False, "--repair-pdf/--no-repair-pdf", help="Try qpdf/gs repair when PDF open fails."),
-    pii_mode: str = typer.Option("off", "--pii-mode", help="PII: off | redact | mask | tag (Rust-native, no Presidio)."),
-    ocr_mode: str = typer.Option("fast", "--ocr-mode", help="OCR: fast | quality | hybrid | vision"),
-    repair_level: str = typer.Option("normal", "--repair-level", help="PDF repair: normal | aggressive"),
-    pdf_password: Optional[str] = typer.Option(None, "--pdf-password", help="Password for encrypted PDFs."),
-    ingest_archives: bool = typer.Option(False, "--ingest-archives/--no-ingest-archives", help="Extract one-level ZIP archives."),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="File path to save the output chunks (JSON or MD format)."),
+    directory: Path = typer.Argument(
+        ..., help="Directory containing documents to ingest."
+    ),
+    chunk_size: int = typer.Option(
+        1000, "--chunk-size", "-c", help="Chunk size for semantic text splitting."
+    ),
+    child_chunk_size: Optional[int] = typer.Option(
+        None,
+        "--child-chunk-size",
+        help="Optional smaller child chunk size for hierarchical chunking.",
+    ),
+    use_cache: bool = typer.Option(
+        True, "--cache/--no-cache", help="Enable or disable caching of processed pages."
+    ),
+    use_ocr: bool = typer.Option(
+        False, "--ocr/--no-ocr", help="Enable OCR for scanned/image-only PDFs."
+    ),
+    pattern: Optional[str] = typer.Option(
+        None, "--pattern", "-p", help="Regex pattern to filter filenames."
+    ),
+    use_embeddings: bool = typer.Option(
+        False,
+        "--embeddings/--no-embeddings",
+        help="Use local embeddings for semantic boundary detection.",
+    ),
+    use_vlm: bool = typer.Option(
+        False,
+        "--vlm/--no-vlm",
+        help="Use table-detection model to rebuild tables in markdown.",
+    ),
+    max_pages: Optional[int] = typer.Option(
+        None, "--max-pages", help="Max pages to process per document."
+    ),
+    strategy: str = typer.Option(
+        "fast", "--strategy", help="fast | hi_res | ocr | auto"
+    ),
+    repair_pdf: bool = typer.Option(
+        False,
+        "--repair-pdf/--no-repair-pdf",
+        help="Try qpdf/gs repair when PDF open fails.",
+    ),
+    pii_mode: str = typer.Option(
+        "off",
+        "--pii-mode",
+        help="PII: off | redact | mask | tag (Rust-native, no Presidio).",
+    ),
+    ocr_mode: str = typer.Option(
+        "fast", "--ocr-mode", help="OCR: fast | quality | hybrid | vision"
+    ),
+    repair_level: str = typer.Option(
+        "normal", "--repair-level", help="PDF repair: normal | aggressive"
+    ),
+    pdf_password: Optional[str] = typer.Option(
+        None, "--pdf-password", help="Password for encrypted PDFs."
+    ),
+    ingest_archives: bool = typer.Option(
+        False,
+        "--ingest-archives/--no-ingest-archives",
+        help="Extract one-level ZIP archives.",
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="File path to save the output chunks (JSON or MD format).",
+    ),
 ):
     """
     Ingest all documents in a directory, perform chunking (with optional OCR/embeddings/VLM tables), and output the results.
     """
     if not directory.exists() or not directory.is_dir():
-        console.print(f"[red]Error:[/red] Directory '{directory}' does not exist or is not a directory.")
+        console.print(
+            f"[red]Error:[/red] Directory '{directory}' does not exist or is not a directory."
+        )
         raise typer.Exit(code=1)
 
-    console.print(f"[bold green]Starting BrainPipe Ingestion[/bold green]")
+    console.print("[bold green]Starting BrainPipe Ingestion[/bold green]")
     console.print(f"Directory: [cyan]{directory}[/cyan]")
-    console.print(f"Parameters: chunk_size={chunk_size}, child_chunk_size={child_chunk_size}, ocr={use_ocr}, embeddings={use_embeddings}, vlm={use_vlm}\n")
+    console.print(
+        f"Parameters: chunk_size={chunk_size}, child_chunk_size={child_chunk_size}, ocr={use_ocr}, embeddings={use_embeddings}, vlm={use_vlm}\n"
+    )
 
     # Estimate total pages
     with console.status("[bold yellow]Scanning directory...[/bold yellow]"):
@@ -92,7 +190,9 @@ def ingest(
         console.print("[yellow]No supported files found in the directory.[/yellow]")
         raise typer.Exit()
 
-    console.print(f"Found [cyan]{num_files}[/cyan] files with approximately [cyan]{num_pages}[/cyan] total pages.")
+    console.print(
+        f"Found [cyan]{num_files}[/cyan] files with approximately [cyan]{num_pages}[/cyan] total pages."
+    )
 
     try:
         ingest_kw = dict(
@@ -108,6 +208,7 @@ def ingest(
         )
         if hasattr(brainpipe, "ingest"):
             import inspect
+
             sig = inspect.signature(brainpipe.ingest)
             if "strategy" in sig.parameters:
                 ingest_kw["strategy"] = strategy
@@ -153,7 +254,7 @@ def ingest(
             progress.update(task, completed=num_pages, description="[green]Done!")
 
     total_chunks = sum(p.num_chunks for p in pages)
-    console.print(f"\n[bold green]Ingestion completed successfully![/bold green]")
+    console.print("\n[bold green]Ingestion completed successfully![/bold green]")
     console.print(f"Total Pages Processed: [cyan]{len(pages)}[/cyan]")
     console.print(f"Total Chunks Generated: [cyan]{total_chunks}[/cyan]")
     if hasattr(brainpipe, "build_ingest_report"):
@@ -166,7 +267,9 @@ def ingest(
 
     if output:
         ext = output.suffix.lower()
-        with console.status(f"[bold yellow]Saving results to {output}...[/bold yellow]"):
+        with console.status(
+            f"[bold yellow]Saving results to {output}...[/bold yellow]"
+        ):
             if ext == ".json":
                 data = []
                 for p in pages:
@@ -175,18 +278,23 @@ def ingest(
                         "page_index": p.page_index,
                         "content": p.content,
                         "chunks": p.chunks,
-                        "child_chunks": [{"text": cc.text, "parent_index": cc.parent_index} for cc in p.child_chunks],
+                        "child_chunks": [
+                            {"text": cc.text, "parent_index": cc.parent_index}
+                            for cc in p.child_chunks
+                        ],
                         "metadata": p.metadata,
                         "form_fields": p.form_fields,
                         "error": getattr(p, "error", None),
-                        "extraction_confidence": getattr(p, "extraction_confidence", None),
+                        "extraction_confidence": getattr(
+                            p, "extraction_confidence", None
+                        ),
                         "ocr_used": getattr(p, "ocr_used", False),
                         "text_density": getattr(p, "text_density", None),
                         "warnings": getattr(p, "warnings", []),
                         "language": getattr(p, "language", None),
                     }
                     data.append(p_data)
-                
+
                 with open(output, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
             else:
@@ -201,75 +309,131 @@ def ingest(
             console.print("\n[bold]Sample Chunk Preview:[/bold]")
             sample_page = pages[0]
             if sample_page.chunks:
-                console.print(f"--- First chunk from [cyan]{os.path.basename(sample_page.path)}[/cyan] (Page {sample_page.page_index}) ---")
-                console.print(sample_page.chunks[0][:300] + ("..." if len(sample_page.chunks[0]) > 300 else ""))
+                console.print(
+                    f"--- First chunk from [cyan]{os.path.basename(sample_page.path)}[/cyan] (Page {sample_page.page_index}) ---"
+                )
+                console.print(
+                    sample_page.chunks[0][:300]
+                    + ("..." if len(sample_page.chunks[0]) > 300 else "")
+                )
+
 
 @app.command()
 def doctor(
-    directory: Path = typer.Argument(..., help="Directory to scan for ingest health."),
-    pattern: Optional[str] = typer.Option(None, "--pattern", "-p", help="Regex filter on filenames."),
+    directory: Optional[Path] = typer.Argument(
+        None, help="Optional document directory to check in isolated workers."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print machine-readable diagnostics."
+    ),
 ):
-    """
-    Scan a directory: file counts by type, broken PDFs, and likely empty pages.
-    """
-    if not directory.exists() or not directory.is_dir():
-        console.print(f"[red]Error:[/red] '{directory}' is not a directory.")
-        raise typer.Exit(code=1)
+    """Check the actual native engine, optional tools and model files."""
+    from .diagnostics import diagnose
+    from .configuration import IngestConfig
+    from .pipeline import ingest_isolated
 
-    pat = re.compile(pattern) if pattern else None
-    counts: dict[str, int] = {}
-    broken_pdfs: list[str] = []
-    empty_estimate = 0
-    total_files = 0
-
-    for path in directory.rglob("*"):
-        if not path.is_file():
-            continue
-        ext = path.suffix.lower()
-        if ext not in SUPPORTED_EXTS:
-            continue
-        if pat and not pat.search(path.name):
-            continue
-        total_files += 1
-        counts[ext] = counts.get(ext, 0) + 1
-        if ext == ".pdf":
-            try:
-                with open(path, "rb") as f:
-                    reader = pypdf.PdfReader(f)
-                    if len(reader.pages) == 0:
-                        empty_estimate += 1
-                    for page in reader.pages:
-                        text = page.extract_text() or ""
-                        if len(text.strip()) < 5:
-                            empty_estimate += 1
-            except Exception as e:
-                broken_pdfs.append(f"{path.relative_to(directory)}: {e}")
-
-    console.print(f"[bold]BrainPipe doctor[/bold] — {directory}\n")
-    console.print(f"Supported files: [cyan]{total_files}[/cyan]")
-    if counts:
-        console.print("\n[bold]By extension:[/bold]")
-        for ext in sorted(counts.keys()):
-            console.print(f"  {ext}: {counts[ext]}")
-    if broken_pdfs:
-        console.print(f"\n[red]Broken PDFs ({len(broken_pdfs)}):[/red]")
-        for line in broken_pdfs[:20]:
-            console.print(f"  • {line}")
-        if len(broken_pdfs) > 20:
-            console.print(f"  … and {len(broken_pdfs) - 20} more")
+    report = diagnose()
+    if directory is not None:
+        try:
+            with ingest_isolated(
+                directory, IngestConfig(workers=1, max_pages=5)
+            ) as stream:
+                pages = list(stream)
+            report["documents"] = {
+                "pages": len(pages),
+                "errors": [
+                    {"source": p.source, "code": p.error.code} for p in pages if p.error
+                ],
+            }
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+    if json_output:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
-        console.print("\n[green]No broken PDFs detected (pypdf open).[/green]")
-    console.print(f"\nLikely sparse/empty page samples (heuristic): [yellow]{empty_estimate}[/yellow]")
-    console.print(
-        "\nTip: use [cyan]strategy=auto[/cyan] for scanned PDFs, "
-        "[cyan]repair_pdf=True[/cyan] (default) for corrupt files."
-    )
+        console.print("[bold]BrainPipe runtime diagnostics[/bold]")
+        console.print_json(json.dumps(report))
+    if "error" in report or report.get("documents", {}).get("errors"):
+        raise typer.Exit(1)
+
+
+@app.command("ingest-safe")
+def ingest_safe(
+    source: Path = typer.Argument(..., help="File or document directory."),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+    format: str = typer.Option("jsonl", "--format", help="jsonl | json | markdown"),
+    chunk_size: int = typer.Option(1000, "--chunk-size", min=1),
+    overlap: int = typer.Option(100, "--overlap", min=0),
+    unit: str = typer.Option("characters", "--unit", help="characters | tokens"),
+    strategy: str = typer.Option("fast", "--strategy"),
+    pdf_layout: str = typer.Option(
+        "native", "--pdf-layout", help="native | reading_order (PDF citations)"
+    ),
+    workers: int = typer.Option(2, "--workers", min=1, max=16),
+    timeout: float = typer.Option(60, "--timeout", min=0.1),
+    memory_mb: int = typer.Option(2048, "--memory-mb", min=256),
+    max_pages: int = typer.Option(500, "--max-pages", min=1),
+    pii_mode: str = typer.Option("off", "--pii-mode"),
+    cache_dir: Optional[Path] = typer.Option(
+        None, "--cache-dir", help="Opt-in persistent extracted-text cache."
+    ),
+):
+    """Ingest in bounded, cancellable worker processes and export traceable chunks."""
+    from contextlib import nullcontext
+    from .configuration import IngestConfig
+    from .pipeline import ingest_isolated
+    from .export import iter_export
+
+    if format not in {"jsonl", "json", "markdown"}:
+        raise typer.BadParameter("format must be jsonl, json or markdown")
+    try:
+        config = IngestConfig(
+            chunk_size=chunk_size,
+            chunk_overlap=overlap,
+            chunk_unit=unit,
+            strategy=strategy,
+            pdf_layout=pdf_layout,
+            workers=workers,
+            timeout_seconds=timeout,
+            memory_mb=memory_mb,
+            max_pages=max_pages,
+            pii_mode=pii_mode,
+            cache_dir=str(cache_dir) if cache_dir else None,
+        )
+        failures = []
+
+        def track(stream):
+            for page in stream:
+                if page.error:
+                    failures.append(page.error.code)
+                yield page
+
+        with ingest_isolated(source, config) as stream:
+            with (
+                output.open("w", encoding="utf-8")
+                if output
+                else nullcontext(sys.stdout)
+            ) as target:
+                for part in iter_export(track(stream), format):
+                    target.write(part)
+    except (ValueError, ImportError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    except KeyboardInterrupt:
+        raise typer.Exit(130) from None
+    if failures:
+        Console(stderr=True).print(
+            f"[red]{len(failures)} extraction errors:[/red] {', '.join(failures)}"
+        )
+        raise typer.Exit(2)
 
 
 @app.command()
 def bench(
-    quick: bool = typer.Option(False, "--quick", help="100 pages (10×10) instead of 1500."),
-    skip_generate: bool = typer.Option(False, "--skip-generate", help="Reuse existing test_data_heavy."),
+    quick: bool = typer.Option(
+        False, "--quick", help="100 pages (10×10) instead of 1500."
+    ),
+    skip_generate: bool = typer.Option(
+        False, "--skip-generate", help="Reuse existing test_data_heavy."
+    ),
 ):
     """Benchmark BrainPipe vs PyMuPDF (throughput + RAM)."""
     import gc
@@ -287,6 +451,7 @@ def bench(
 
     if not skip_generate or not data_dir.exists():
         import shutil
+
         if data_dir.exists():
             shutil.rmtree(data_dir)
         data_dir.mkdir()
@@ -304,15 +469,23 @@ def bench(
     rss0 = rss_mb()
     t0 = time.perf_counter()
     if hasattr(brainpipe, "ingest_text"):
-        texts = brainpipe.ingest_text(str(data_dir), parallel_files=False, backend="pdfium")
+        texts = brainpipe.ingest_text(
+            str(data_dir), parallel_files=False, backend="pdfium"
+        )
     else:
-        texts = [p.content for p in brainpipe.ingest(str(data_dir), use_cache=False, strategy="fast", chunk_pages=False)]
+        texts = [
+            p.content
+            for p in brainpipe.ingest(
+                str(data_dir), use_cache=False, strategy="fast", chunk_pages=False
+            )
+        ]
     bp_time = time.perf_counter() - t0
     bp_rss = rss_mb() - rss0
 
     pm_time = None
     try:
         import fitz
+
         gc.collect()
         t1 = time.perf_counter()
         n = 0
@@ -328,13 +501,17 @@ def bench(
     except ImportError:
         pass
 
-    console.print(f"\n[bold]BrainPipe bench[/bold] ({total_pages} pages, quick={quick})")
+    console.print(
+        f"\n[bold]BrainPipe bench[/bold] ({total_pages} pages, quick={quick})"
+    )
     console.print(f"  ingest_text pages: {len(texts)}")
     console.print(f"  Time: {bp_time:.3f}s ({total_pages / bp_time:.0f} pages/s)")
     console.print(f"  RAM delta: {bp_rss:.1f} MB")
     if pm_time:
         console.print(f"  PyMuPDF: {pm_time:.3f}s (ratio {bp_time / pm_time:.3f}x)")
-    console.print("  Tip: build release with `cargo build --release`; optional RUSTFLAGS='-C target-cpu=native'")
+    console.print(
+        "  Tip: build release with `cargo build --release`; optional RUSTFLAGS='-C target-cpu=native'"
+    )
 
 
 @app.command()
@@ -344,6 +521,7 @@ def compare(
 ):
     """Quick table: BrainPipe vs PyMuPDF text length and time per file."""
     import time
+
     if not directory.is_dir():
         console.print("[red]Not a directory.[/red]")
         raise typer.Exit(1)
@@ -368,6 +546,7 @@ def compare(
         pm_len, pm_time = 0, None
         try:
             import fitz
+
             t1 = time.perf_counter()
             doc = fitz.open(path)
             pm_len = sum(len(page.get_text() or "") for page in doc)
@@ -378,7 +557,9 @@ def compare(
         rows.append((path.name, bp_len, bp_time, pm_len, pm_time))
 
     console.print(f"[bold]Compare[/bold] — {directory}\n")
-    console.print(f"{'file':<28} {'BP chars':>10} {'BP s':>8} {'PM chars':>10} {'PM s':>8}")
+    console.print(
+        f"{'file':<28} {'BP chars':>10} {'BP s':>8} {'PM chars':>10} {'PM s':>8}"
+    )
     for name, bl, bt, pl, pt in rows:
         pts = f"{pt:.3f}" if pt is not None else "n/a"
         console.print(f"{name:<28} {bl:>10} {bt:>8.3f} {pl:>10} {pts:>8}")
@@ -387,8 +568,12 @@ def compare(
 @app.command("sanitize")
 def sanitize_cmd(
     path: Path = typer.Argument(..., help="File or directory to sanitize."),
-    mode: str = typer.Option("redact", "--mode", "-m", help="off | redact | mask | tag"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write sanitized text here."),
+    mode: str = typer.Option(
+        "redact", "--mode", "-m", help="off | redact | mask | tag"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="Write sanitized text here."
+    ),
 ):
     """PII detection/redaction in Rust (no Presidio). Beats Unstructured+Presidio 2-step pipelines on latency."""
     if not hasattr(brainpipe, "sanitize_pii"):
@@ -425,18 +610,27 @@ def version():
     """
     console.print("[bold]BrainPipe[/bold] CLI v0.1.0")
 
+
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", "-h", help="The interface to bind to."),
+    host: str = typer.Option(
+        "0.0.0.0", "--host", "-h", help="The interface to bind to."
+    ),
     port: int = typer.Option(8000, "--port", "-p", help="The port to bind to."),
-    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development."),
+    reload: bool = typer.Option(
+        False, "--reload", help="Enable auto-reload for development."
+    ),
 ):
     """
     Start the FastAPI web server for BrainPipe.
     """
     import uvicorn
-    console.print(f"[bold green]Starting BrainPipe FastAPI server[/bold green] on {host}:{port}...")
+
+    console.print(
+        f"[bold green]Starting BrainPipe FastAPI server[/bold green] on {host}:{port}..."
+    )
     uvicorn.run("brainpipe.api:app", host=host, port=port, reload=reload)
+
 
 if __name__ == "__main__":
     app()

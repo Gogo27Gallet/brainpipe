@@ -2,6 +2,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use pyo3::prelude::*;
+use std::cell::RefCell;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -9,8 +10,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use pdfium_render::prelude::*;
 use std::sync::mpsc;
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, LazyLock};
 use std::thread;
 use crossbeam_channel;
@@ -23,6 +22,10 @@ use ort::execution_providers::{CUDAExecutionProvider, DirectMLExecutionProvider,
 use xxhash_rust::xxh3::xxh3_64;
 
 mod archives;
+mod archive_limits;
+mod stream;
+mod pdf_geometry;
+use stream::ChunkStream;
 mod extra_formats;
 mod formats;
 mod ingest_report;
@@ -180,12 +183,16 @@ fn finish_document_page_bulk(
 }
 
 fn send_error_page(
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     path_str: &str,
     page_index: usize,
     err: String,
     metadata: HashMap<String, String>,
 ) {
+    let ext = Path::new(path_str).extension().and_then(|s| s.to_str())
+        .unwrap_or("document").to_ascii_lowercase();
+    let warning = if ext == "pdf" { "pdf_open_failed".to_string() }
+        else { format!("{ext}_extraction_failed") };
     let doc = finish_document_page(
         path_str.to_string(),
         page_index,
@@ -198,7 +205,7 @@ fn send_error_page(
         false,
         0,
         0,
-        vec!["pdf_open_failed".to_string()],
+        vec![warning],
         pii::PiiMode::Off,
     );
     let _ = tx.send(Ok(doc));
@@ -210,85 +217,6 @@ impl DocumentPage {
     fn __str__(&self) -> String { self.__repr__() }
 }
 
-enum ChunkStreamBackend {
-    Channel(Arc<Mutex<mpsc::Receiver<PyResult<DocumentPage>>>>),
-    Buffer {
-        pages: Vec<DocumentPage>,
-        index: AtomicUsize,
-    },
-}
-
-#[pyclass(unsendable)]
-pub struct ChunkStream {
-    backend: ChunkStreamBackend,
-}
-
-impl ChunkStream {
-    fn from_channel(rx: mpsc::Receiver<PyResult<DocumentPage>>) -> Self {
-        ChunkStream {
-            backend: ChunkStreamBackend::Channel(Arc::new(Mutex::new(rx))),
-        }
-    }
-
-    fn from_vec(pages: Vec<DocumentPage>) -> Self {
-        ChunkStream {
-            backend: ChunkStreamBackend::Buffer {
-                pages,
-                index: AtomicUsize::new(0),
-            },
-        }
-    }
-}
-
-#[pymethods]
-impl ChunkStream {
-    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
-
-    /// Drain all pages in one Rust loop (much faster than repeated __next__ from Python).
-    fn drain_all(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Vec<DocumentPage>> {
-        match &mut slf.backend {
-            ChunkStreamBackend::Buffer { pages, index } => {
-                index.store(pages.len(), Ordering::Relaxed);
-                Ok(std::mem::take(pages))
-            }
-            ChunkStreamBackend::Channel(rx) => {
-                let rx = rx.clone();
-                py.allow_threads(move || {
-                    let lock = rx.lock().unwrap();
-                    let mut out = Vec::new();
-                    while let Ok(item) = lock.recv() {
-                        out.push(item?);
-                    }
-                    Ok(out)
-                })
-            }
-        }
-    }
-
-    #[allow(deprecated)]
-    fn __next__(slf: PyRefMut<'_, Self>, py: Python) -> Option<PyObject> {
-        match &slf.backend {
-            ChunkStreamBackend::Buffer { pages, index } => {
-                let i = index.fetch_add(1, Ordering::Relaxed);
-                if i >= pages.len() {
-                    return None;
-                }
-                return Some(pages[i].clone().into_py(py));
-            }
-            ChunkStreamBackend::Channel(rx) => {
-                let rx = rx.clone();
-                py.allow_threads(move || {
-                    let lock = rx.lock().unwrap();
-                    lock.recv().ok()
-                })
-                .map(|res| match res {
-                    Ok(doc) => doc.into_py(py),
-                    Err(e) => e.into_py(py),
-                })
-            }
-        }
-    }
-}
 
 fn page_cache_hash(chars: &[CharInfo], page_index: usize) -> u64 {
     let mut bytes = Vec::with_capacity(chars.len() + 16);
@@ -648,6 +576,10 @@ fn fast_semantic_chunk(text: &str, max_chunk_size: usize) -> Vec<String> {
         if !current.is_empty() && current.len() + para.len() + 2 > max_chunk_size {
             chunks.push(std::mem::take(&mut current));
         }
+        if para.len() > max_chunk_size {
+            chunks.extend(recursive_structural_chunk(para, max_chunk_size));
+            continue;
+        }
         if !current.is_empty() {
             current.push_str("\n\n");
         }
@@ -824,27 +756,24 @@ impl EmbeddingSessionPool {
     }
 }
 
-thread_local! {
-    static THREAD_PDFIUM: RefCell<Option<Pdfium>> = const { RefCell::new(None) };
-}
-
+// pdfium-render holds its process-wide native lock for the whole Pdfium
+// lifetime. A thread-local instance would keep that lock while other workers
+// wait forever. Scope ownership to this operation and release it on return.
 fn with_thread_pdfium<F, R>(lib_path: &str, f: F) -> R
 where
     F: FnOnce(&Pdfium) -> R,
 {
-    THREAD_PDFIUM.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        if slot.is_none() {
-            let bindings = Pdfium::bind_to_library(lib_path)
-                .or_else(|_| Pdfium::bind_to_system_library())
-                .expect("Pdfium bind failed");
-            *slot = Some(Pdfium::new(bindings));
-        }
-        f(slot.as_ref().unwrap())
-    })
+    let bindings = Pdfium::bind_to_library(lib_path)
+        .or_else(|_| Pdfium::bind_to_system_library())
+        .expect("Pdfium bind failed after availability check");
+    let pdfium = Pdfium::new(bindings);
+    f(&pdfium)
 }
 
 static PDFIUM_LIB_PATH: LazyLock<String> = LazyLock::new(|| {
+    if let Ok(path) = std::env::var("BRAINPIPE_PDFIUM_PATH") {
+        return path;
+    }
     let lib_name = Pdfium::pdfium_platform_library_name_at_path("");
     if let Ok(cwd) = std::env::current_dir() {
         let candidate = cwd.join(&lib_name);
@@ -1607,12 +1536,15 @@ fn extract_text_from_txt(path: &Path) -> Result<String, String> {
 fn extract_non_pdf_pages(path: &Path, ext: &str) -> (Vec<office::OfficePage>, Vec<String>) {
     let mut warnings = Vec::new();
     let pages = match ext {
-        "txt" | "md" => vec![office::OfficePage {
-            label: None,
-            text: extract_text_from_txt(path).unwrap_or_default(),
-        }],
+        "txt" | "md" => match extract_text_from_txt(path) {
+            Ok(text) => vec![office::OfficePage { label: None, text }],
+            Err(e) => { warnings.push(e); Vec::new() }
+        },
         "docx" | "xlsx" | "pptx" | "xls" | "odt" | "ods" | "odp" | "epub" | "doc" | "ppt" => {
-            office::extract_office_pages(path, ext).unwrap_or_default()
+            match office::extract_office_pages(path, ext) {
+                Ok(pages) => pages,
+                Err(e) => { warnings.push(e); Vec::new() }
+            }
         }
         "html" | "htm" => match formats::extract_html(path) {
             Ok(t) => vec![office::OfficePage { label: None, text: t }],
@@ -1677,10 +1609,10 @@ fn extract_non_pdf_pages(path: &Path, ext: &str) -> (Vec<office::OfficePage>, Ve
                 Vec::new()
             }
         },
-        _ if formats::is_plain_text_extension(ext) => vec![office::OfficePage {
-            label: None,
-            text: extra_formats::extract_plain(path).unwrap_or_default(),
-        }],
+        _ if formats::is_plain_text_extension(ext) => match extra_formats::extract_plain(path) {
+            Ok(text) => vec![office::OfficePage { label: None, text }],
+            Err(e) => { warnings.push(e); Vec::new() }
+        },
         _ => Vec::new(),
     };
     if (ext == "doc" || ext == "ppt") && !pages.is_empty() {
@@ -1774,7 +1706,7 @@ fn run_ocr_on_bytes_with_meta(
 #[allow(clippy::too_many_arguments)]
 fn process_raw_page(
     raw_page: RawPage,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     path_str: &str,
     metadata_arc: &Arc<HashMap<String, String>>,
     form_fields_arc: &Arc<HashMap<String, String>>,
@@ -1797,9 +1729,13 @@ fn process_raw_page(
 ) {
     let mut cached_doc = None;
     let mut hash = 0u64;
-    if let Some(ref db) = **db_arc {
+    let cacheable = !use_ocr && !use_vlm && precomputed_chunks.is_none();
+    if let Some(ref db) = (**db_arc).as_ref().filter(|_| cacheable) {
         hash = page_cache_hash_raw(&raw_page);
-        let key = format!("page_{}_{}", path_str, hash);
+        let key = format!(
+            "page_v2_{}_{hash}_{chunk_size}_{child_chunk_size:?}_{use_ocr}_{use_vlm}_{use_embeddings}_{fast_chunk}_{chunk_pages}_{strategy_ocr}_{}_{}",
+            path_str, ocr_mode as u8, pii_mode as u8,
+        );
         cached_doc = sled_get_page(db, key.as_bytes());
     }
 
@@ -1935,8 +1871,11 @@ fn process_raw_page(
         pii_mode,
     );
 
-    if let Some(ref db) = **db_arc {
-        let key = format!("page_{}_{}", path_str, hash);
+    if let Some(ref db) = (**db_arc).as_ref().filter(|_| cacheable) {
+        let key = format!(
+            "page_v2_{}_{hash}_{chunk_size}_{child_chunk_size:?}_{use_ocr}_{use_vlm}_{use_embeddings}_{fast_chunk}_{chunk_pages}_{strategy_ocr}_{}_{}",
+            path_str, ocr_mode as u8, pii_mode as u8,
+        );
         sled_put_page(db, key.as_bytes(), &doc);
     }
     let _ = tx.send(Ok(doc));
@@ -1948,7 +1887,7 @@ fn process_pdf_ultrafast(
     pdfium: &Pdfium,
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     chunk_pages: bool,
     chunk_size: usize,
     max_pages: Option<usize>,
@@ -2099,7 +2038,7 @@ fn extract_pdf_page_texts(
 fn process_pdf_mupdf(
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     chunk_pages: bool,
     chunk_size: usize,
     max_pages: Option<usize>,
@@ -2151,7 +2090,7 @@ fn process_pdf_document(
     pdfium: &Pdfium,
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     backend: PdfBackend,
     layout: LayoutMode,
     use_ocr: bool,
@@ -2428,7 +2367,7 @@ fn process_pdf_document(
         let doc_chunks = fast_semantic_chunk(&full, chunk_size);
         let assigned = assign_doc_chunks_to_pages(&page_texts, &doc_chunks);
         let chunk_map: HashMap<usize, Vec<String>> = assigned.into_iter().collect();
-        let run = |tx: &mpsc::Sender<PyResult<DocumentPage>>, raw_page: RawPage| {
+        let run = |tx: &mpsc::SyncSender<PyResult<DocumentPage>>, raw_page: RawPage| {
             let pre = chunk_map.get(&raw_page.index).cloned();
             process_raw_page(
                 raw_page,
@@ -2544,7 +2483,7 @@ fn process_pdf_document(
 fn process_image_file(
     path: &Path,
     path_str: &str,
-    tx: &mpsc::Sender<PyResult<DocumentPage>>,
+    tx: &mpsc::SyncSender<PyResult<DocumentPage>>,
     use_ocr: bool,
     ocr_arc: &Arc<Option<OcrEngine>>,
     ocr_mode: ocr_enhance::OcrMode,
@@ -2652,6 +2591,7 @@ fn collect_turbo_pages(
         let path_arc: Arc<str> = path.to_string_lossy().into_owned().into();
         pages
             .into_iter()
+            .take(max_pages.unwrap_or(usize::MAX))
             .enumerate()
             .map(|(i, p)| {
                 let mut metadata = HashMap::new();
@@ -2690,16 +2630,14 @@ fn collect_turbo_pages(
             .collect()
     } else {
         let mut out = Vec::new();
-        with_thread_pdfium(&lib_path, |pdfium| {
-            for path in paths {
-                let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                if ext.eq_ignore_ascii_case("pdf") {
-                    out.extend(pdf_pages(pdfium, path));
-                } else {
-                    out.extend(non_pdf_pages(path));
-                }
+        for path in paths {
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if ext.eq_ignore_ascii_case("pdf") {
+                out.extend(with_thread_pdfium(&lib_path, |pdfium| pdf_pages(pdfium, path)));
+            } else {
+                out.extend(non_pdf_pages(path));
             }
-        });
+        }
         out
     }
 }
@@ -2734,6 +2672,15 @@ fn ingest(
     pii_mode: Option<&str>,
 ) -> PyResult<ChunkStream> {
     let chunk_size = chunk_size.unwrap_or(1000);
+    if !Path::new(directory).is_dir() {
+        return Err(PyValueError::new_err("directory must be an existing directory"));
+    }
+    if chunk_size == 0 || child_chunk_size == Some(0) {
+        return Err(PyValueError::new_err("chunk sizes must be greater than zero"));
+    }
+    if max_pages == Some(0) || max_concurrent_images == Some(0) {
+        return Err(PyValueError::new_err("page and concurrency limits must be greater than zero"));
+    }
     let use_cache = use_cache.unwrap_or(true);
     let repair_pdf = repair_pdf.unwrap_or(false);
     let repair_level = match repair_level {
@@ -2743,6 +2690,9 @@ fn ingest(
     let ingest_archives = ingest_archives.unwrap_or(false);
     let pdf_password_owned: Option<String> = pdf_password.filter(|p| !p.is_empty()).map(|s| s.to_string());
     let ocr_render_scale = ocr_render_scale.unwrap_or(1.0);
+    if !ocr_render_scale.is_finite() || !(0.5..=3.0).contains(&ocr_render_scale) {
+        return Err(PyValueError::new_err("ocr_render_scale must be finite and between 0.5 and 3.0"));
+    }
     let ocr_mode = match ocr_mode {
         Some(s) => ocr_enhance::OcrMode::from_str(s).map_err(PyValueError::new_err)?,
         None => ocr_enhance::OcrMode::Fast,
@@ -2766,7 +2716,10 @@ fn ingest(
     let parallel_files = parallel_files.unwrap_or(
         !use_ocr && !use_vlm && !use_embeddings && !cfg!(target_os = "windows"),
     );
-    let parallel_pages = !parallel_files;
+    // PDFium serializes native access globally. Reopening pages on Rayon
+    // workers while the caller owns a document can deadlock. Extract native
+    // pages sequentially; keep file-level and Rust postprocessing parallelism.
+    let parallel_pages = false;
 
     let pdf_backend = match backend {
         Some(s) => PdfBackend::from_str(s).map_err(PyValueError::new_err)?,
@@ -2798,23 +2751,21 @@ fn ingest(
     } else { None };
 
     let (paths, archive_temp_dirs) =
-        archives::collect_ingest_paths(directory, filter_regex.as_ref(), ingest_archives);
+        archives::collect_ingest_paths(directory, filter_regex.as_ref(), ingest_archives)
+            .map_err(PyValueError::new_err)?;
 
-    let mut auto_needs_ocr = false;
-    if ingest_strategy == IngestStrategy::Auto {
-        let lib_path = resolve_pdfium_path();
-        for path in &paths {
-            if path.extension().and_then(|s| s.to_str()) == Some("pdf") {
-                with_thread_pdfium(&lib_path, |pdfium| {
-                    if let Some(avg) = sample_pdf_avg_chars(pdfium, path, 5) {
-                        if page_quality::looks_scanned(avg) {
-                            auto_needs_ocr = true;
-                        }
-                    }
-                });
-            }
-        }
+    if paths.iter().any(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))) {
+        Pdfium::bind_to_library(resolve_pdfium_path())
+            .or_else(|_| Pdfium::bind_to_system_library())
+            .map_err(|e| PyRuntimeError::new_err(format!("PDFium unavailable: {e}. Install PDFium or run download_pdfium.py.")))?;
     }
+
+    // Mixed PDFs need a per-page decision; a few sampled pages can miss scans.
+    let auto_needs_ocr = ingest_strategy == IngestStrategy::Auto && paths.iter().any(|p| {
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+        ext.eq_ignore_ascii_case("pdf") || formats::is_image_extension(ext)
+    });
+    use_ocr |= auto_needs_ocr;
 
     let (det_model_path, rec_model_path) = if use_ocr || auto_needs_ocr {
         let (d, r) = download_ocr_models_if_needed(py)?;
@@ -2857,7 +2808,6 @@ fn ingest(
         let repair_level = repair_level;
         let pdf_password_owned = pdf_password_owned.clone();
         let paths = paths.clone();
-        let archive_temp_dirs = archive_temp_dirs.clone();
         let pages = py.allow_threads(move || {
             collect_turbo_pages(
                 &paths,
@@ -2873,11 +2823,10 @@ fn ingest(
         return Ok(ChunkStream::from_vec(pages));
     }
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(16);
     let repair_level = repair_level;
     let pdf_password_owned = pdf_password_owned;
     let pii_mode = pii_mode;
-    let small_batch = paths.len() <= 2 && !use_ocr && !use_vlm && !use_embeddings;
 
     let spawn_ingest = move || {
         let db = if use_cache { sled::open(".brainpipe_cache").ok() } else { None };
@@ -2915,17 +2864,7 @@ fn ingest(
                 .to_lowercase();
 
             if ext == "pdf" {
-                let file_use_ocr = if ingest_strategy == IngestStrategy::Auto {
-                    let mut scanned = false;
-                    with_thread_pdfium(&lib_path, |pdfium| {
-                        if let Some(avg) = sample_pdf_avg_chars(pdfium, &path, 5) {
-                            scanned = page_quality::looks_scanned(avg);
-                        }
-                    });
-                    scanned
-                } else {
-                    use_ocr
-                };
+                let file_use_ocr = use_ocr;
                 with_thread_pdfium(&lib_path, |pdfium| {
                     process_pdf_document(
                         pdfium,
@@ -2985,7 +2924,7 @@ fn ingest(
                     return;
                 }
 
-                for (page_index, page) in pages.into_iter().enumerate() {
+                for (page_index, page) in pages.into_iter().take(max_pages.unwrap_or(usize::MAX)).enumerate() {
                     let content = page.text;
                     let chunks = chunk_page_text(
                         &content,
@@ -3055,11 +2994,8 @@ fn ingest(
         archives::cleanup_temp_dirs(&archive_temp_dirs);
     };
 
-    if small_batch {
-        spawn_ingest();
-    } else {
-        thread::spawn(spawn_ingest);
-    }
+    // A bounded channel requires an independent producer, even for one file.
+    thread::spawn(spawn_ingest);
 
     Ok(ChunkStream::from_channel(rx))
 }
@@ -3095,7 +3031,12 @@ fn ingest_text(
     repair_pdf: Option<bool>,
     pii_mode: Option<&str>,
 ) -> PyResult<Vec<String>> {
-    let _ = backend;
+    if !Path::new(directory).is_dir() || max_pages == Some(0) {
+        return Err(PyValueError::new_err("expected an existing directory and a positive max_pages"));
+    }
+    if let Some(s) = backend {
+        PdfBackend::from_str(s).map_err(PyValueError::new_err)?;
+    }
     let repair_pdf = repair_pdf.unwrap_or(false);
     let pii_mode = match pii_mode {
         Some(s) => pii::PiiMode::from_str(s).map_err(PyValueError::new_err)?,
@@ -3109,7 +3050,14 @@ fn ingest_text(
     };
 
     let (paths, archive_temp_dirs) =
-        archives::collect_ingest_paths(directory, filter_regex.as_ref(), false);
+        archives::collect_ingest_paths(directory, filter_regex.as_ref(), false)
+            .map_err(PyValueError::new_err)?;
+
+    if paths.iter().any(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))) {
+        Pdfium::bind_to_library(resolve_pdfium_path())
+            .or_else(|_| Pdfium::bind_to_system_library())
+            .map_err(|e| PyRuntimeError::new_err(format!("PDFium unavailable: {e}. Install PDFium or run download_pdfium.py.")))?;
+    }
 
     let lib_path = resolve_pdfium_path();
     const REPAIR_LEVEL: pdf_repair::RepairLevel = pdf_repair::RepairLevel::Normal;
@@ -3139,13 +3087,13 @@ fn ingest_text(
             if formats::is_image_extension(ext) {
                 return Vec::new();
             }
-            let (pages, _) = extract_non_pdf_pages(path, ext);
+            let ext = ext.to_lowercase();
+            let (pages, _) = extract_non_pdf_pages(path, &ext);
+            let pages = pages.into_iter().take(max_pages.unwrap_or(usize::MAX));
             if pii_off {
-                return pages.into_iter().map(|p| p.text).collect();
+                return pages.map(|p| p.text).collect();
             }
-            pages
-                .into_iter()
-                .map(|p| pii::sanitize_text(&p.text, pii_mode).0)
+            pages.map(|p| pii::sanitize_text(&p.text, pii_mode).0)
                 .collect()
         };
 
@@ -3162,16 +3110,9 @@ fn ingest_text(
             paths.par_iter().flat_map(process_path).collect()
         } else {
             let mut out = Vec::new();
-            with_thread_pdfium(&lib_path, |pdfium| {
-                for path in &paths {
-                    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                    if ext.eq_ignore_ascii_case("pdf") {
-                        out.extend(extract_pdf(pdfium, path));
-                    } else {
-                        out.extend(extract_non_pdf(path));
-                    }
-                }
-            });
+            for path in &paths {
+                out.extend(process_path(path));
+            }
             out
         };
         archives::cleanup_temp_dirs(&archive_temp_dirs);
@@ -3179,9 +3120,31 @@ fn ingest_text(
     })
 }
 
+#[pyfunction]
+fn runtime_info() -> HashMap<String, String> {
+    let mut info = HashMap::new();
+    let path = resolve_pdfium_path();
+    info.insert("pdfium_path".into(), path.to_string());
+    let available = Pdfium::bind_to_library(&path)
+        .or_else(|_| Pdfium::bind_to_system_library()).is_ok();
+    info.insert("pdfium_available".into(), available.to_string());
+    info.insert("native_stream_capacity".into(), "16".into());
+    info
+}
+
+#[pyfunction]
+fn image_dimensions(path: &str) -> PyResult<(u32, u32)> {
+    image::image_dimensions(path).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 #[pymodule]
 fn brainpipe(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ingest, m)?)?;
+    m.add_function(wrap_pyfunction!(pdf_geometry::pdf_geometry, m)?)?;
+    m.add_function(wrap_pyfunction!(pdf_geometry::render_pdf_page, m)?)?;
+    m.add_class::<pdf_geometry::PdfGeometryStream>()?;
+    m.add_function(wrap_pyfunction!(runtime_info, m)?)?;
+    m.add_function(wrap_pyfunction!(image_dimensions, m)?)?;
     m.add_function(wrap_pyfunction!(ingest_text, m)?)?;
     m.add_function(wrap_pyfunction!(build_ingest_report, m)?)?;
     m.add_function(wrap_pyfunction!(sanitize_pii, m)?)?;

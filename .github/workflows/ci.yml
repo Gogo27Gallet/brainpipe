@@ -2,14 +2,19 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - '*'
-  pull_request:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
+  validate:
+    uses: ./.github/workflows/tests.yml
+
   build_wheels:
+    needs: validate
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -32,6 +37,11 @@ jobs:
       - name: Build wheels via cibuildwheel
         uses: pypa/cibuildwheel@v2.21.3
         env:
+          CIBW_TEST_EXTRAS: "tokens"
+          CIBW_TEST_COMMAND: >-
+            python -c "from brainpipe import IngestConfig; from brainpipe.brainpipe import runtime_info; from brainpipe.chunking import token_counter; assert runtime_info()['pdfium_available'] == 'true'; assert IngestConfig().workers == 2; assert token_counter('cl100k_base')('hello world') == 2"
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-musllinux* *-win32 *-manylinux_i686"
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: "AMD64"
