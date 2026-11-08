@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 def cache_key(content_hash: str, suffix: str, config) -> str:
@@ -16,8 +16,22 @@ def cache_key(content_hash: str, suffix: str, config) -> str:
         options.pop(name)
     from importlib.metadata import version
 
+    from . import brainpipe as native
+    from ._runtime import pdfium_distribution
+
+    engine = Path(native.__file__)
+    library = Path(os.environ.get("BRAINPIPE_PDFIUM_PATH", "__system_pdfium__"))
+    # Custom/system runtimes must not inherit another engine's cached output.
+    runtime = {
+        "distribution": pdfium_distribution(),
+        "engine_sha256": hashlib.sha256(engine.read_bytes()).hexdigest(),
+        "pdfium_sha256": hashlib.sha256(library.read_bytes()).hexdigest()
+        if library.is_file()
+        else None,
+    }
     payload = {
         "cache_version": CACHE_VERSION,
+        "runtime": runtime,
         "engine": version("brainpipe"),
         "content": content_hash,
         "suffix": suffix.lower(),

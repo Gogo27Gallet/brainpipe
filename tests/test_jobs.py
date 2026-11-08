@@ -131,3 +131,47 @@ def test_job_store_capacity_and_retention(tmp_path, monkeypatch):
     finally:
         release.set()
         store.close()
+
+
+def test_pdf_preview_uses_isolated_renderer(tmp_path):
+    from reportlab.pdfgen import canvas
+
+    path = tmp_path / "page.pdf"
+    pdf = canvas.Canvas(str(path), pagesize=(600, 800))
+    pdf.drawString(40, 750, "A cited sentence.")
+    pdf.save()
+    with TestClient(api.app) as client:
+        response = client.post(
+            "/jobs",
+            data={"pdf_layout": "reading_order"},
+            files={"file": ("page.pdf", path.read_bytes())},
+        )
+        job = wait_for_job(client, response.json()["id"])
+        assert job["status"] == "completed" and job["preview_available"]
+        result = client.get(f"/jobs/{job['id']}/results?format=json").json()[0]
+        assert result["chunks"][0]["bbox"] and result["chunks"][0]["regions"]
+        preview = client.get(f"/jobs/{job['id']}/pages/0/preview")
+        assert preview.status_code == 200 and preview.content.startswith(
+            b"\x89PNG\r\n\x1a\n"
+        )
+        assert preview.headers["cache-control"] == "no-store"
+        assert client.get(f"/jobs/{job['id']}/pages/99/preview").status_code == 404
+
+
+def test_redacted_jobs_do_not_retain_source_previews(tmp_path):
+    from reportlab.pdfgen import canvas
+
+    path = tmp_path / "private.pdf"
+    pdf = canvas.Canvas(str(path))
+    pdf.drawString(40, 750, "secret@example.com")
+    pdf.save()
+    with TestClient(api.app) as client:
+        response = client.post(
+            "/jobs",
+            data={"pii_mode": "redact", "pdf_layout": "reading_order"},
+            files={"file": ("private.pdf", path.read_bytes())},
+        )
+        job = wait_for_job(client, response.json()["id"])
+        assert not job["preview_available"]
+        assert not client.app.state.jobs.get(job["id"]).input_path.exists()
+        assert client.get(f"/jobs/{job['id']}/pages/0/preview").status_code == 404

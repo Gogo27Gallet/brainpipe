@@ -12,15 +12,15 @@ python -m venv .venv
 . .venv/bin/activate
 pip install 'maturin>=1.10,<2'
 maturin develop --extras dev,api,cli,langchain,llamaindex,tokens
-python download_pdfium.py
 pytest -q
 ruff check brainpipe tools
 python tools/evaluate.py
+python tools/evaluate_layout.py
 python tools/fuzz_documents.py --rounds 40
 ```
 
-Windows activation: `.venv\Scripts\activate`. Run from the repository root for
-local PDFium discovery, or set `BRAINPIPE_PDFIUM_PATH`. Basic text/Office parsing
+Windows activation: `.venv\Scripts\activate`. PDFium is supplied by the pinned runtime dependency;
+`BRAINPIPE_PDFIUM_PATH` is available for custom deployments. Basic text/Office parsing
 requires neither PDFium nor ONNX Runtime. Model-based features have additional
 requirements documented in README.md.
 
@@ -48,7 +48,7 @@ python tools/check_demo.py
 
 Pass `--chromium /path/to/chromium` to use a system browser. The script uploads a
 synthetic document, checks job completion, highlights a chunk and checks mobile
-overflow. Screenshots can be captured with `--screenshot path.png`.
+overflow. Pass `--pdf path.pdf` to exercise actual PDF previews and coordinate overlays. Screenshots can be captured with `--screenshot path.png`.
 
 The CI matrix configures Linux/macOS/Windows and Python 3.10/3.12. A configured
 matrix is not evidence that an unobserved run passed. See docs/RELEASING.md for

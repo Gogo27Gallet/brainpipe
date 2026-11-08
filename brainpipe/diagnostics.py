@@ -14,6 +14,8 @@ def _probe():
     from . import brainpipe as native
 
     runtime = native.runtime_info()
+    from ._runtime import pdfium_distribution
+
     model_dir = Path(".brainpipe_cache")
     return {
         "python": platform.python_version(),
@@ -21,6 +23,7 @@ def _probe():
         "pdfium": {
             "available": runtime["pdfium_available"] == "true",
             "path": runtime["pdfium_path"],
+            "distribution": pdfium_distribution(),
         },
         "onnx": {
             "library_configured": bool(os.environ.get("ORT_DYLIB_PATH")),

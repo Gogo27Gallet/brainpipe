@@ -9,6 +9,7 @@ from typing import Literal
 @dataclass(frozen=True)
 class IngestConfig:
     strategy: Literal["fast", "hi_res", "ocr", "auto"] = "fast"
+    pdf_layout: Literal["native", "reading_order"] = "native"
     use_ocr: bool = False
     use_embeddings: bool = False
     use_vlm: bool = False
@@ -66,6 +67,7 @@ class IngestConfig:
         ):
             raise ValueError("memory_mb must be at least 256, or None")
         for name, choices in {
+            "pdf_layout": {"native", "reading_order"},
             "strategy": {"fast", "hi_res", "ocr", "auto"},
             "repair_level": {"normal", "aggressive"},
             "ocr_mode": {"fast", "quality", "hybrid", "vision"},

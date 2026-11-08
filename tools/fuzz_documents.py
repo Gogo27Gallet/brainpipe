@@ -12,6 +12,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", type=int, default=1729)
     parser.add_argument("--rounds", type=int, default=40)
+    parser.add_argument(
+        "--pdf-layout", choices=["native", "reading_order"], default="native"
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if not 1 <= args.rounds <= 10_000:
@@ -44,6 +47,7 @@ def main():
         with ingest_isolated(
             directory,
             IngestConfig(
+                pdf_layout=args.pdf_layout,
                 timeout_seconds=3,
                 cpu_seconds=2,
                 memory_mb=2048,
@@ -60,6 +64,7 @@ def main():
         completed = {p.source for p in pages}
         report = {
             "seed": args.seed,
+            "pdf_layout": args.pdf_layout,
             "rounds": args.rounds,
             "files_reported": len(completed),
             "resource_limited_files": len(

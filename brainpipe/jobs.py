@@ -33,6 +33,8 @@ class Job:
     cancel_event: object = field(default_factory=threading.Event)
     stream: object = None
     readers: int = 0
+    allow_preview: bool = False
+    preview_password: str | None = field(default=None, repr=False)
 
     @property
     def result_path(self):
@@ -49,6 +51,7 @@ class Job:
             "finished_at": self.finished_at,
             "error": self.error,
             "cancel_requested": self.cancel_event.is_set(),
+            "preview_available": self.allow_preview and self.input_path.is_file(),
         }
 
 
@@ -102,6 +105,12 @@ class JobStore:
 
                 shutil.copyfile(source_path, destination)
                 job = Job(uuid.uuid4().hex, filename, folder, config, destination)
+                job.allow_preview = (
+                    destination.suffix.lower() == ".pdf" and config.pii_mode == "off"
+                )
+                job.preview_password = (
+                    config.pdf_password if job.allow_preview else None
+                )
                 self._jobs[job.id] = job
                 self._executor.submit(self._run, job)
                 return job.snapshot()
@@ -117,6 +126,16 @@ class JobStore:
         with self._lock:
             self._reap()
             return self._jobs.get(job_id)
+
+    def copy_pdf_source(self, job_id, destination):
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or not job.allow_preview or job.finished_at is None:
+                raise FileNotFoundError(job_id)
+            import shutil
+
+            shutil.copyfile(job.input_path, destination)
+            return job.preview_password
 
     def open_result(self, job_id):
         with self._lock:
@@ -173,7 +192,8 @@ class JobStore:
                 job.status = "cancelled" if job.cancel_event.is_set() else "failed"
                 job.error = "The ingestion job could not be completed."
         finally:
-            job.input_path.unlink(missing_ok=True)
+            if not job.allow_preview:
+                job.input_path.unlink(missing_ok=True)
             with self._lock:
                 job.stream = None
                 job.finished_at = time.time()

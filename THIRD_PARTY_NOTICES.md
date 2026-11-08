@@ -24,3 +24,10 @@ tiktoken; the bundled vocabulary avoids a network fetch during token chunking.
 Rust/Python dependencies retain their own licenses. Optional MuPDF, model files
 and native runtimes require separate distribution review. This notice is not a
 claim that every optional asset is licensed under the same terms as BrainPipe.
+
+The runtime now depends on `pypdfium2==5.15.1`, which ships PDFium as a platform
+wheel and includes its own licensing/third-party notices. BrainPipe locates that
+library in `pypdfium2_raw` without importing or initializing the Python wrapper.
+The library is not copied out of its dependency wheel. Review and retain the
+upstream distribution's notices when redistributing environments or binaries:
+https://github.com/pypdfium2-team/pypdfium2

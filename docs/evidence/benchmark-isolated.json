@@ -1,10 +1,16 @@
 {
   "schema_version": 1,
-  "source_sha256": "f330004b7fe5ae960db05d5d7c904870c866439147a40fe8c4adea648124ccdd",
-  "engine_binary_sha256": "1dc526d56b3d796e7fc80f979dc7ea7b0b3c2fc525484143578c27c5113ffad1",
+  "source_sha256": "b1fd1c1997279116eef92bbb50de8b4b11de4c7a448522c930f07f367cbf964a",
+  "engine_binary_sha256": "8f7ecddc527701038d220649fbca4320ec1fe3b655748533c9d1206886717687",
   "mode": "isolated",
   "build_label": "release",
   "brainpipe_version": "0.1.0",
+  "pdfium_distribution": {
+    "package": "pypdfium2",
+    "version": "5.15.1"
+  },
+  "pdfium_binary_sha256": "c76dc0f7839644bfa7c3e3107a6068df714e339c861bb7d4519907b821d427f9",
+  "pdf_layout": "native",
   "python": "3.12.14",
   "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
   "logical_cpus": 3,
@@ -16,38 +22,38 @@
   "chunking": true,
   "runs": [
     {
-      "seconds": 0.8138313689996721,
-      "first_page_seconds": 0.24751248399979886,
+      "seconds": 0.8744825619996845,
+      "first_page_seconds": 0.23697515000003477,
       "pages": 200,
       "errors": 0,
       "characters": 594600,
-      "pages_per_second": 245.7511563431522,
+      "pages_per_second": 228.70667602868923,
       "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
-      "peak_process_tree_rss_bytes": 103137280
+      "peak_process_tree_rss_bytes": 108265472
     },
     {
-      "seconds": 0.7769049659996199,
-      "first_page_seconds": 0.19789678699999058,
+      "seconds": 0.8186187760002213,
+      "first_page_seconds": 0.238560839999991,
       "pages": 200,
       "errors": 0,
       "characters": 594600,
-      "pages_per_second": 257.43174358869766,
+      "pages_per_second": 244.31396623615427,
       "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
-      "peak_process_tree_rss_bytes": 102936576
+      "peak_process_tree_rss_bytes": 109064192
     },
     {
-      "seconds": 0.8186821469998904,
-      "first_page_seconds": 0.22099262799974895,
+      "seconds": 0.8639712429994688,
+      "first_page_seconds": 0.22302548199968442,
       "pages": 200,
       "errors": 0,
       "characters": 594600,
-      "pages_per_second": 244.2950548426052,
+      "pages_per_second": 231.48918626695885,
       "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
-      "peak_process_tree_rss_bytes": 102961152
+      "peak_process_tree_rss_bytes": 109268992
     }
   ],
-  "median_seconds": 0.8138313689996721,
-  "median_pages_per_second": 245.7511563431522,
+  "median_seconds": 0.8639712429994688,
+  "median_pages_per_second": 231.48918626695885,
   "rss_sampling_ms": 10,
   "note": "RSS sums may double-count shared mappings. Isolated mode includes safety/chunking overhead. Text hashes must agree for equivalent-output comparisons."
 }

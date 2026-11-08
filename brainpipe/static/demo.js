@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-let jobId = null, pages = [], polling = false;
+let jobId = null, pages = [], polling = false, previewAvailable = false;
 const labels = {queued: 'En file', running: 'Extraction en cours', completed: 'Extraction terminée', failed: 'Extraction à vérifier', cancelled: 'Traitement annulé'};
 function showError(message) { $('error').textContent = message; $('error').hidden = !message; }
 async function request(url, options) {
@@ -10,11 +10,23 @@ async function request(url, options) {
   }
   return response.json();
 }
-function tab(chunks) { $('chunks').hidden = !chunks; $('content').hidden = chunks; $('text-tab').classList.toggle('active', !chunks); $('chunks-tab').classList.toggle('active', chunks); }
+function tab(view) {
+  view = view === true ? 'chunks' : view === false ? 'text' : view;
+  $('chunks').hidden = view !== 'chunks'; $('content').hidden = view !== 'text'; $('pdf-frame').hidden = view !== 'pdf';
+  for (const name of ['text', 'chunks', 'pdf']) $(name + '-tab').classList.toggle('active', view === name);
+}
+
 function showPage() {
   const page = pages[Number($('page-select').value)];
   if (!page) return;
   $('content').textContent = page.content;
+  const canPreview = previewAvailable && page.page_index >= 0;
+  $('pdf-tab').hidden = !canPreview;
+  $('pdf-overlay').replaceChildren();
+  if (canPreview) {
+    $('pdf-image').src = `/jobs/${jobId}/pages/${page.page_index}/preview`;
+    $('pdf-overlay').setAttribute('viewBox', `0 0 ${page.page_width || 1} ${page.page_height || 1}`);
+  } else if (!$('pdf-frame').hidden) tab(false);
   $('chunks').replaceChildren();
   if (page.error) showError(`${page.error.code} : ${page.error.message}`);
   else if (page.warnings.length) showError(`À vérifier : ${page.warnings.join(', ')}`);
@@ -27,6 +39,14 @@ function showPage() {
     const id = document.createElement('code'); id.textContent = `id ${chunk.id.slice(0, 16)}…`;
     card.append(meta, text, id);
     function highlight() {
+      if (canPreview && chunk.regions && chunk.regions.length) {
+        $('pdf-overlay').replaceChildren(...chunk.regions.map(box => {
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          for (const [name, value] of Object.entries({x: box[0], y: box[1], width: box[2]-box[0], height: box[3]-box[1]})) rect.setAttribute(name, value);
+          return rect;
+        }));
+        tab('pdf'); return;
+      }
       tab(false); const mark = document.createElement('mark'); mark.textContent = chunk.text;
       // Python offsets count Unicode scalars; Array.from uses the same units.
       const chars = Array.from(page.content);
@@ -48,6 +68,7 @@ async function poll(id) {
         if (job.error) showError(job.error);
         if (job.pages) {
           pages = await request(`/jobs/${id}/results?format=json`);
+          previewAvailable = Boolean(job.preview_available);
           $('page-count').textContent = pages.filter(p => p.page_index >= 0).length;
           $('chunk-count').textContent = pages.reduce((n,p) => n + p.chunks.length, 0);
           $('ocr-count').textContent = pages.filter(p => p.ocr_used).length;
@@ -75,6 +96,11 @@ $('cancel').addEventListener('click', async () => { if (jobId) { try { await req
 $('page-select').addEventListener('change', showPage);
 $('text-tab').addEventListener('click', () => tab(false));
 $('chunks-tab').addEventListener('click', () => tab(true));
+$('pdf-tab').addEventListener('click', () => tab('pdf'));
 $('drop').addEventListener('dragover', event => { event.preventDefault(); $('drop').classList.add('drag'); });
 $('drop').addEventListener('dragleave', () => $('drop').classList.remove('drag'));
 $('drop').addEventListener('drop', event => { event.preventDefault(); $('drop').classList.remove('drag'); $('file').files = event.dataTransfer.files; });
+
+$('pdf-image').addEventListener('error', () => {
+  if (!$('pdf-frame').hidden) showError("L’aperçu a expiré ou n’a pas pu être rendu. Relancez l’extraction pour le récupérer.");
+});

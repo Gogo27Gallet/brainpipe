@@ -24,6 +24,7 @@ use xxhash_rust::xxh3::xxh3_64;
 mod archives;
 mod archive_limits;
 mod stream;
+mod pdf_geometry;
 use stream::ChunkStream;
 mod extra_formats;
 mod formats;
@@ -3139,6 +3140,9 @@ fn image_dimensions(path: &str) -> PyResult<(u32, u32)> {
 #[pymodule]
 fn brainpipe(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ingest, m)?)?;
+    m.add_function(wrap_pyfunction!(pdf_geometry::pdf_geometry, m)?)?;
+    m.add_function(wrap_pyfunction!(pdf_geometry::render_pdf_page, m)?)?;
+    m.add_class::<pdf_geometry::PdfGeometryStream>()?;
     m.add_function(wrap_pyfunction!(runtime_info, m)?)?;
     m.add_function(wrap_pyfunction!(image_dimensions, m)?)?;
     m.add_function(wrap_pyfunction!(ingest_text, m)?)?;

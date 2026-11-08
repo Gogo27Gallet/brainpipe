@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "passed": true,
+  "documents": 12,
+  "results": {
+    "native": [
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 0.7619047619047619,
+        "source": "columns-1-rotation-0.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 0.3333333333333333,
+        "source": "columns-1-rotation-180.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 0.14285714285714285,
+        "pairwise_reading_order": 0.0,
+        "source": "columns-1-rotation-270.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 0.14285714285714285,
+        "pairwise_reading_order": 0.0,
+        "source": "columns-1-rotation-90.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 0.3484848484848485,
+        "source": "columns-2-rotation-0.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 0.5,
+        "source": "columns-2-rotation-180.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 0.08333333333333333,
+        "pairwise_reading_order": 0.0,
+        "source": "columns-2-rotation-270.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 0.08333333333333333,
+        "pairwise_reading_order": 0.0,
+        "source": "columns-2-rotation-90.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 0.4338235294117647,
+        "source": "columns-3-rotation-0.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 0.5294117647058824,
+        "source": "columns-3-rotation-180.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 0.058823529411764705,
+        "pairwise_reading_order": 0.0,
+        "source": "columns-3-rotation-270.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 0.058823529411764705,
+        "pairwise_reading_order": 0.0,
+        "source": "columns-3-rotation-90.pdf",
+        "error": null,
+        "geometric_text_coverage": 0.0,
+        "exact_chunk_spans": true
+      }
+    ],
+    "reading_order": [
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-1-rotation-0.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-1-rotation-180.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-1-rotation-270.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-1-rotation-90.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-2-rotation-0.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-2-rotation-180.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-2-rotation-270.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-2-rotation-90.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-3-rotation-0.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-3-rotation-180.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-3-rotation-270.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      },
+      {
+        "phrase_recall": 1.0,
+        "pairwise_reading_order": 1.0,
+        "source": "columns-3-rotation-90.pdf",
+        "error": null,
+        "geometric_text_coverage": 1.0,
+        "exact_chunk_spans": true
+      }
+    ]
+  },
+  "scope": "Twelve synthetic PDFs with shuffled content streams, one/two/three columns, headers, footers and four page rotations. Not a real-world OCR, RTL or table-quality study."
+}

@@ -2,7 +2,7 @@
 
 | Formats | Extraction | Known limitations |
 |---|---|---|
-| PDF, native text | PDFium text, optional layout path | Font/encoding/reading-order issues remain possible; coordinates are not exported by the isolated schema |
+| PDF, native text | PDFium text; opt-in geometric blocks, word boxes and XY-cut order | Complex tables, RTL/vertical writing and unusual typography remain unvalidated; fast/native mode keeps its original order |
 | Scanned/mixed PDF | Page-level OCR fallback with RTen models | Model download on first use; language/rotation/handwriting quality not broadly evaluated |
 | PNG/JPEG/TIFF/WebP/BMP | OCR when enabled | Isolated header pixel limit; animated/multi-frame semantics not guaranteed |
 | DOCX | Main body, headers and footers | Styles/heading semantics, embedded images and complex tables are not reconstructed |
@@ -29,3 +29,10 @@ an optional experimental feature.
 
 See [synthetic evaluation evidence](evidence/synthetic-evaluation.json) for the
 small test corpus. Its phrase recall is not a general OCR accuracy or layout score.
+
+The geometric reading-order mode is opt-in. Its reference evaluation includes
+12 PDFs with shuffled drawing operations, one/two/three columns, titles, footers
+and page rotations. Tests also check cropped pages and verify ink under cited
+regions. This does not establish reading-order quality for every publication or
+reconstruct PDF table cells. The local demo can overlay cited regions on an
+isolated PNG rendering of the source page.

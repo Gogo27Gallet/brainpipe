@@ -7,7 +7,7 @@ import threading
 from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
 
 from .configuration import IngestConfig
 from .diagnostics import diagnose
@@ -192,6 +192,7 @@ def ingest_file(
     use_vlm: bool = Form(False),
     max_pages: int = Form(500, ge=1, le=500),
     strategy: Literal["fast", "hi_res", "ocr", "auto"] = Form("fast"),
+    pdf_layout: Literal["native", "reading_order"] = Form("native"),
     repair_pdf: bool = Form(False),
     ocr_mode: Literal["fast", "quality", "hybrid", "vision"] = Form("fast"),
     repair_level: Literal["normal", "aggressive"] = Form("normal"),
@@ -209,6 +210,7 @@ def ingest_file(
         use_vlm=use_vlm,
         max_pages=max_pages,
         strategy=strategy,
+        pdf_layout=pdf_layout,
         repair_pdf=repair_pdf,
         ocr_mode=ocr_mode,
         pdf_password=pdf_password,
@@ -266,6 +268,7 @@ def create_job(
     chunk_overlap: int = Form(100, ge=0),
     chunk_unit: Literal["characters", "tokens"] = Form("characters"),
     strategy: Literal["fast", "hi_res", "ocr", "auto"] = Form("fast"),
+    pdf_layout: Literal["native", "reading_order"] = Form("native"),
     pii_mode: Literal["off", "redact", "mask", "tag"] = Form("off"),
     use_cache: bool = Form(False),
     max_pages: int = Form(500, ge=1, le=500),
@@ -277,6 +280,7 @@ def create_job(
         chunk_overlap=chunk_overlap,
         chunk_unit=chunk_unit,
         strategy=strategy,
+        pdf_layout=pdf_layout,
         pii_mode=pii_mode,
         use_cache=use_cache,
         max_pages=max_pages,
@@ -342,3 +346,34 @@ def job_results(
             "X-Brainpipe-Status": job.status,
         },
     )
+
+
+@app.get("/jobs/{job_id}/pages/{page_index}/preview")
+def pdf_preview(request: Request, job_id: str, page_index: int):
+    from .preview import render_preview, PreviewError
+
+    job = _get_job(request, job_id)
+    if job.finished_at is None:
+        raise HTTPException(409, detail="The job has not finished.")
+    if not 0 <= page_index < job.pages or not job.allow_preview:
+        raise HTTPException(
+            404, detail="A source preview is not available for this page."
+        )
+    if not _SYNC_SLOTS.acquire(blocking=False):
+        raise HTTPException(429, detail="Preview workers are busy. Try again later.")
+    try:
+        with tempfile.TemporaryDirectory(prefix="brainpipe_preview_") as directory:
+            path = Path(directory) / "source.pdf"
+            try:
+                password = request.app.state.jobs.copy_pdf_source(job_id, path)
+            except FileNotFoundError:
+                raise HTTPException(404, detail="Source file expired.") from None
+            try:
+                png = render_preview(path, page_index, password)
+            except PreviewError as exc:
+                raise HTTPException(422, detail=str(exc)) from None
+            return Response(
+                png, media_type="image/png", headers={"Cache-Control": "no-store"}
+            )
+    finally:
+        _SYNC_SLOTS.release()

@@ -1,5 +1,8 @@
 """Document ingestion: native compatibility API and isolated, typed pipeline."""
 
+from ._runtime import configure_pdfium
+
+
 from .brainpipe import (
     ChildChunk,
     ChunkStream,
@@ -11,8 +14,10 @@ from .brainpipe import (
     sanitize_pii,
 )
 from .configuration import IngestConfig
-from .records import Chunk, ExtractionError, PageResult
+from .records import Chunk, ExtractionError, PageResult, TextBlock, TextSpan
 from .pipeline import IsolatedStream, ingest_isolated
+
+configure_pdfium()
 
 __all__ = [
     "ingest",
@@ -27,6 +32,8 @@ __all__ = [
     "Chunk",
     "ExtractionError",
     "PageResult",
+    "TextBlock",
+    "TextSpan",
     "IsolatedStream",
     "ingest_isolated",
 ]

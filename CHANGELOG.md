@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Install PDFium through a pinned binary dependency, with no manual runtime download.
+- Add opt-in streaming native PDF geometry, XY-cut column order, real word/chunk coordinates and source-preview overlays, including rotations/crop boxes.
+- Add disposable bounded PNG rendering; expire preview sources and disable previews/stale geometry for PII modes.
+
 - Add typed `IngestConfig`, isolated per-file worker supervision, bounded queues,
   timeouts, cancellation and POSIX CPU and Linux address-space limits.
 - Add schema-v1 source/chunk identities, exact text spans, Markdown structure

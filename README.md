@@ -21,13 +21,13 @@ python -m venv .venv
 . .venv/bin/activate
 pip install 'maturin>=1.10,<2'
 maturin develop --release --extras cli,api,tokens
-python download_pdfium.py
 ```
 
-Windows activation: `.venv\Scripts\activate`. Run PDF examples from the directory
-containing the PDFium library, put it on the system library path, or set
-`BRAINPIPE_PDFIUM_PATH` to its absolute path. The helper supports Linux, macOS and
-Windows, x64/arm64 where an upstream binary exists. It also accepts `--release TAG`.
+Windows activation: `.venv\Scripts\activate`. PDFium is installed automatically
+through the pinned `pypdfium2` binary distribution; the runtime locates its shared
+library without initializing a second engine. No separate native-library download
+is needed, and basic PDF/text extraction works offline. For a custom deployment,
+`BRAINPIPE_PDFIUM_PATH` explicitly overrides the packaged library.
 
 Published wheels can be built by the CI workflow; release availability is not
 implied by this source installation example. See [release gates](docs/RELEASING.md).
@@ -75,8 +75,17 @@ if __name__ == "__main__":
 `PageResult` includes `source`, a SHA-256 `source_id`, `page_index`, content,
 quality metadata, warnings and a typed error. A chunk carries a stable `id`, its
 section, structure kind and exact `[start_char, end_char)` span in `page.content`.
-These are Unicode character offsets, not PDF coordinates. `bbox` stays `None`
-until a parser provides real geometry. See [output schema](docs/OUTPUT.md).
+These are Unicode character offsets. Native PDFs can additionally provide real
+page coordinates, text blocks and word spans with `pdf_layout="reading_order"`:
+
+```python
+config = IngestConfig(pdf_layout="reading_order")
+```
+
+This opt-in mode groups geometric lines/paragraphs and uses XY-cut reading order.
+`bbox` and `regions` use display-oriented PDF points with a top-left origin,
+including page rotation and cropping. OCR/model/repair paths currently report
+geometry as unavailable rather than inventing it. See [output schema](docs/OUTPUT.md).
 
 Tables expressed in Markdown and fenced code blocks remain intact. A block
 larger than the requested chunk budget is emitted with `oversized=True` and a
@@ -93,6 +102,7 @@ may vary; use `source` and `page_index` when assembling documents.
 brainpipe doctor --json
 brainpipe doctor ./documents
 brainpipe ingest-safe ./documents --format jsonl -o results.jsonl
+brainpipe ingest-safe ./documents --pdf-layout reading_order -o cited.jsonl
 brainpipe ingest-safe ./documents --unit tokens --chunk-size 400 --overlap 40
 brainpipe ingest-safe ./documents --workers 2 --timeout 30 --memory-mb 2048
 brainpipe serve --host 127.0.0.1 --port 8000
@@ -107,9 +117,10 @@ The legacy `ingest`, `bench` and `compare` CLI commands remain available.
 
 Open **[http://127.0.0.1:8000/demo](http://127.0.0.1:8000/demo)** after starting the
 server. Upload a document, inspect pages and chunks, highlight a chunk's exact
-source span, cancel the job and download results. The UI uses no external scripts.
+source span, or click a located chunk to highlight its word regions on the original
+PDF. Cancel the job and download results. The UI uses no external scripts.
 
-![BrainPipe document explorer](docs/evidence/demo-desktop.png)
+![BrainPipe PDF source citations](docs/evidence/pdf-citations.png)
 
 | Endpoint | Behavior |
 |---|---|
@@ -120,9 +131,11 @@ source span, cancel the job and download results. The UI uses no external script
 | `GET /jobs/{id}` | Status, page/error counts and cancellation state |
 | `DELETE /jobs/{id}` | Request cancellation |
 | `GET /jobs/{id}/results?format=jsonl` | Stream JSONL, JSON or Markdown results |
+| `GET /jobs/{id}/pages/{page}/preview` | Resource-limited PNG source preview |
 
 The local store runs up to two jobs with eight admitted active/queued jobs.
-Results expire after 15 minutes and are lost on restart. Run **one Uvicorn
+Results and preview-enabled PDF sources expire after 15 minutes and are lost on restart.
+Previews are disabled for PII sanitization modes; changed/redacted pages drop stale geometry. Run **one Uvicorn
 server process**; a shared durable queue is required before scaling API replicas.
 Jobs may finish with partial results and status `failed` or `cancelled`.
 
@@ -184,6 +197,7 @@ maturin develop --extras dev,api,cli,langchain,tokens
 pytest -q
 ruff check brainpipe tools
 python tools/evaluate.py --output evaluation.json
+python tools/evaluate_layout.py --output layout-evaluation.json
 python tools/fuzz_documents.py --seed 1729 --rounds 40
 python tools/benchmark.py ./pdf-corpus --mode native --runs 3 --build-label release
 ```

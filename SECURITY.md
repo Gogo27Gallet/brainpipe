@@ -36,7 +36,7 @@ plus 1 MiB framing allowance), spills it to temporary storage after 1 MiB and
 bounds the copied document separately. Upload names never become server paths.
 At most eight queued/active jobs and two simultaneous synchronous `/ingest`
 requests are admitted; overload returns 429. The two executing jobs and two
-synchronous slots can therefore run up to four parser workers in total. Results are
+synchronous slots can therefore run up to four parser workers in total. Results and preview-enabled original PDFs are
 private temporary files retained for 15 minutes, or removed when the service
 stops. A hard server/host crash can leave OS temporary directories; operational
 cleanup of abandoned `brainpipe_*` directories is still required.
@@ -58,3 +58,15 @@ are independent of the file input size; ZIP bombs can be small on disk.
 Use GitHub private vulnerability reporting if enabled; otherwise contact the
 maintainer privately before publishing exploit details. Include the version,
 platform and a minimal synthetic reproduction without credentials/private files.
+
+Source previews return PNG only, through disposable workers capped at 2,000 ×
+2,000 pixels and a 15-second wall deadline, with `Cache-Control: no-store`.
+Preview-enabled encrypted PDFs retain their password in job memory until expiry;
+it is not written to disk or returned in job metadata. All PII modes disable
+original previews, and changed sanitized text drops source geometry rather than
+leaving stale offsets or original words in the output.
+
+The pinned pypdfium2 runtime dependency supplies PDFium and its third-party
+notices. Keep it updated through reviewed dependency bumps and rerun geometry,
+rendering and packaging tests when changing its version. An explicit
+`BRAINPIPE_PDFIUM_PATH` is a trusted administrator override.

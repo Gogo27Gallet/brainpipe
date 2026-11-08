@@ -1,6 +1,7 @@
 """Regression tests against the actual compiled Rust extension."""
 
 import subprocess
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -44,9 +45,15 @@ def test_long_unicode_paragraph_respects_chunk_size(tmp_path):
 
 def test_text_only_without_pdfium(tmp_path):
     (tmp_path / "a.txt").write_text("hello")
-    # A fresh process and working directory have no local PDFium library.
+    # An explicit unavailable runtime must not break text-only extraction.
     script = "import brainpipe; assert brainpipe.ingest_text('.', parallel_files=False) == ['hello']; assert len(list(brainpipe.ingest('.', use_cache=False, chunk_pages=False))) == 1"
-    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True, timeout=30)
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        check=True,
+        timeout=30,
+        env={**os.environ, "BRAINPIPE_PDFIUM_PATH": str(tmp_path / "missing-library")},
+    )
 
 
 def test_archive_duplicate_names_preserved_and_cleaned(tmp_path):
@@ -141,7 +148,13 @@ except RuntimeError as exc:
 else:
     raise AssertionError('expected missing PDFium error')
 """
-    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True, timeout=30)
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        check=True,
+        timeout=30,
+        env={**os.environ, "BRAINPIPE_PDFIUM_PATH": str(tmp_path / "missing-library")},
+    )
 
 
 def test_repeated_multifile_pdf_ingestion_does_not_deadlock(multipage_pdf):
@@ -166,6 +179,9 @@ for parallel in (False, True, True):
 def test_llamaindex_ids_include_page_index(multipage_pdf):
     pytest.importorskip("llama_index.core")
     from brainpipe.integrations.llamaindex import SimpleDirectoryReader
-    documents = SimpleDirectoryReader(input_files=[str(multipage_pdf)], use_cache=False).load_data()
+
+    documents = SimpleDirectoryReader(
+        input_files=[str(multipage_pdf)], use_cache=False
+    ).load_data()
     assert documents and len({d.id_ for d in documents}) == len(documents)
     assert any("_page_2_" in d.id_ for d in documents)

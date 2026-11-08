@@ -7,12 +7,16 @@
   admission, polling deadlines, cancellation and cleanup.
 - `worker.py`: per-file private snapshots, POSIX limits, native extraction,
   chunk generation and serialization. Only plain records cross the process boundary.
+- `_runtime.py`: discover the pinned packaged PDFium shared library without importing a second PDFium wrapper.
+- `geometry.py`: geometric line/paragraph assembly, XY-cut order and chunk-to-word region mapping.
+- `preview.py`: bounded disposable PDF-to-PNG workers.
 - `records.py`, `chunking.py`, `export.py`: schema, exact-span structure/token
   chunks and streaming exporters.
 - `cache.py`: opt-in content/configuration/version-addressed extraction cache,
   written atomically with private file permissions.
 - `jobs.py`: bounded in-memory API job queue, result files and retention.
 - `api.py`, `cli.py`, `static/`: HTTP/CLI entrypoints and the local explorer.
+- `src/pdf_geometry.rs`: two-page bounded native geometry stream, device-coordinate conversion and capped PNG rendering.
 - `src/stream.rs`: Python iterator boundary and the bounded native page channel.
 - `src/archive_limits.rs`: shared actual-byte ZIP validation for Office/EPUB.
 - `src/office.rs`, `formats.rs`, `extra_formats.rs`, `msg.rs`: format parsers.
@@ -62,3 +66,17 @@ storage after 1 MiB. File bytes are also bounded while copying.
 A durable shared queue, authenticated object storage and shared job metadata are
 needed before scaling API replicas. The included local service does not claim
 those distributed-system properties.
+
+PDF geometry streams keep one native document open while emitting pages through
+a two-item channel. Closing the stream disconnects the producer and stops it at
+the next send boundary. Word coordinates are transformed with PDFium's own
+page-to-device mapping; layout grouping uses unrotated loose font boxes while
+citations use tight display boxes. This avoids confusing page rotation with
+reading direction.
+
+Preview-enabled PDF job sources remain in private temporary storage until job
+expiry. Their password, when required, remains only in job memory for that
+lifetime. Preview requests copy the source under the store lock and rasterize it
+in a separate resource-limited process, sharing the synchronous admission limit.
+PII modes disable source previews and remove geometry when sanitization changes
+text, preventing stale offsets or raw words from leaking into results.

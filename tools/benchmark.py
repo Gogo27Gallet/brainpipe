@@ -26,7 +26,8 @@ def runner(args):
         from brainpipe import IngestConfig, ingest_isolated
 
         with ingest_isolated(
-            args.directory, IngestConfig(workers=args.workers)
+            args.directory,
+            IngestConfig(workers=args.workers, pdf_layout=args.pdf_layout),
         ) as stream:
             for page in stream:
                 first = first or time.perf_counter() - start
@@ -75,6 +76,9 @@ def main():
     )
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument(
+        "--pdf-layout", choices=["native", "reading_order"], default="native"
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--build-label",
@@ -112,6 +116,8 @@ def main():
             args.mode,
             "--workers",
             str(args.workers),
+            "--pdf-layout",
+            args.pdf_layout,
         ]
         process = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -155,6 +161,10 @@ def main():
     for source in sources:
         source_hash.update(str(source.relative_to(source_root)).encode())
         source_hash.update(source.read_bytes())
+    from brainpipe._runtime import pdfium_distribution
+
+    runtime = native.runtime_info()
+    library = Path(runtime["pdfium_path"])
     report = {
         "schema_version": 1,
         "source_sha256": source_hash.hexdigest(),
@@ -164,6 +174,11 @@ def main():
         "mode": args.mode,
         "build_label": args.build_label,
         "brainpipe_version": version("brainpipe"),
+        "pdfium_distribution": pdfium_distribution(),
+        "pdfium_binary_sha256": hashlib.sha256(library.read_bytes()).hexdigest()
+        if library.is_file()
+        else None,
+        "pdf_layout": args.pdf_layout if args.mode == "isolated" else None,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "logical_cpus": os.cpu_count(),

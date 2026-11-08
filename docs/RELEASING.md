@@ -15,8 +15,8 @@ produce artifacts; creating/updating a PR does not publish a package.
 5. Run synthetic evaluation and mutation smoke tests. Evaluate OCR/complex tables
    on a labeled representative corpus before claiming their accuracy.
 6. Build wheels and an sdist, install them into clean environments, check the CLI,
-   API demo assets, bundled tokenizer and optional imports. Test PDFium setup
-   independently: wheels do not imply that its shared library is bundled.
+   API demo assets, bundled tokenizer and optional imports. Test the pinned pypdfium2 dependency in a clean wheel installation outside the
+   checkout, with no manually downloaded library and no runtime network access.
 7. Record release-build performance with corpus hashes, configuration and text
    equivalence checks. Never publish a generic speedup claim from a tiny fixture.
 8. Test job overload, cancellation, retention, worker crashes and resource limits

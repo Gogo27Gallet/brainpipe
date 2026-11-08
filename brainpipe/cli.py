@@ -365,6 +365,9 @@ def ingest_safe(
     overlap: int = typer.Option(100, "--overlap", min=0),
     unit: str = typer.Option("characters", "--unit", help="characters | tokens"),
     strategy: str = typer.Option("fast", "--strategy"),
+    pdf_layout: str = typer.Option(
+        "native", "--pdf-layout", help="native | reading_order (PDF citations)"
+    ),
     workers: int = typer.Option(2, "--workers", min=1, max=16),
     timeout: float = typer.Option(60, "--timeout", min=0.1),
     memory_mb: int = typer.Option(2048, "--memory-mb", min=256),
@@ -388,6 +391,7 @@ def ingest_safe(
             chunk_overlap=overlap,
             chunk_unit=unit,
             strategy=strategy,
+            pdf_layout=pdf_layout,
             workers=workers,
             timeout_seconds=timeout,
             memory_mb=memory_mb,

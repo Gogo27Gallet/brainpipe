@@ -10,7 +10,8 @@ import shutil
 
 from . import cache
 from .configuration import IngestConfig
-from .records import ExtractionError, PageResult
+from .records import ExtractionError, PageResult, TextBlock, TextSpan
+from .geometry import pdf_pages, locate_chunks
 from .chunking import chunk_text, child_chunks
 
 
@@ -118,12 +119,37 @@ def run_file(path, display_name, staging, config_dict, output):
                 )
             )
             return
-        key = cache.cache_key(source_id, destination.suffix, config)
+        key = (
+            cache.cache_key(source_id, destination.suffix, config)
+            if config.cache_dir
+            else ""
+        )
         raw_pages = cache.load(config.cache_dir, key, config.max_output_bytes)
         hit = raw_pages is not None
         if raw_pages is None:
-            stream = native.ingest(str(staging), **config.native_options())
-            raw_pages = (_native_page(p) for p in stream)
+            geometric = (
+                destination.suffix == ".pdf"
+                and config.pdf_layout == "reading_order"
+                and config.strategy in {"fast", "hi_res"}
+                and not any(
+                    (
+                        config.use_ocr,
+                        config.use_vlm,
+                        config.use_embeddings,
+                        config.repair_pdf,
+                    )
+                )
+            )
+            if geometric:
+                raw_pages = pdf_pages(destination, source_id, config)
+            else:
+                if (
+                    destination.suffix == ".pdf"
+                    and config.pdf_layout == "reading_order"
+                ):
+                    warnings.append("geometry_unavailable_for_selected_strategy")
+                stream = native.ingest(str(staging), **config.native_options())
+                raw_pages = (_native_page(p) for p in stream)
         saved = []
         total = 0
         count = 0
@@ -138,6 +164,12 @@ def run_file(path, display_name, staging, config_dict, output):
                 page_index=raw["page_index"],
                 content=raw["content"],
                 form_fields=raw.get("form_fields", {}),
+                blocks=[TextBlock.from_dict(b) for b in raw.get("blocks", [])],
+                source_spans=[
+                    TextSpan.from_dict(s) for s in raw.get("source_spans", [])
+                ],
+                page_width=raw.get("page_width"),
+                page_height=raw.get("page_height"),
                 metadata=raw.get("metadata", {}),
                 warnings=raw.get("warnings", []) + warnings,
                 error=ExtractionError(**raw["error"]) if raw.get("error") else None,
@@ -156,6 +188,12 @@ def run_file(path, display_name, staging, config_dict, output):
                 }
             page.chunks = chunk_text(page.content, source_id, page.page_index, config)
             page.child_chunks = child_chunks(page.content, page.chunks, config)
+            page.chunks = locate_chunks(
+                page.chunks, page.source_spans, page.blocks, page.content
+            )
+            page.child_chunks = locate_chunks(
+                page.child_chunks, page.source_spans, page.blocks, page.content
+            )
             if any(c.oversized for c in page.chunks):
                 page.warnings.append("atomic_block_exceeds_chunk_budget")
             if count + 1 == config.max_pages:

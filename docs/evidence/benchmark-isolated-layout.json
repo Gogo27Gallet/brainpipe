@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "source_sha256": "b1fd1c1997279116eef92bbb50de8b4b11de4c7a448522c930f07f367cbf964a",
+  "engine_binary_sha256": "8f7ecddc527701038d220649fbca4320ec1fe3b655748533c9d1206886717687",
+  "mode": "isolated",
+  "build_label": "release",
+  "brainpipe_version": "0.1.0",
+  "pdfium_distribution": {
+    "package": "pypdfium2",
+    "version": "5.15.1"
+  },
+  "pdfium_binary_sha256": "c76dc0f7839644bfa7c3e3107a6068df714e339c861bb7d4519907b821d427f9",
+  "pdf_layout": "reading_order",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "logical_cpus": 3,
+  "corpus_sha256": "c44c5aeaaaac5c39d8596ca97e4ff7db6df39a631dcd978d0b63acbef9bae54b",
+  "files": 8,
+  "input_bytes": 161271,
+  "cache": false,
+  "workers": 2,
+  "chunking": true,
+  "runs": [
+    {
+      "seconds": 5.135433206000016,
+      "first_page_seconds": 0.29650168499938445,
+      "pages": 200,
+      "errors": 0,
+      "characters": 594600,
+      "pages_per_second": 38.94510783750994,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 132034560
+    },
+    {
+      "seconds": 4.936401695000313,
+      "first_page_seconds": 0.2935349950003001,
+      "pages": 200,
+      "errors": 0,
+      "characters": 594600,
+      "pages_per_second": 40.51534140800657,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 129597440
+    },
+    {
+      "seconds": 4.347180599999774,
+      "first_page_seconds": 0.26549689800049237,
+      "pages": 200,
+      "errors": 0,
+      "characters": 594600,
+      "pages_per_second": 46.00683026603735,
+      "normalized_text_sha256": "3a71dd4790a17779c1dfee39296a55b1af19e65315f6f5e9690b650f895b6bb3",
+      "peak_process_tree_rss_bytes": 131842048
+    }
+  ],
+  "median_seconds": 4.936401695000313,
+  "median_pages_per_second": 40.51534140800657,
+  "rss_sampling_ms": 10,
+  "note": "RSS sums may double-count shared mappings. Isolated mode includes safety/chunking overhead. Text hashes must agree for equivalent-output comparisons."
+}
